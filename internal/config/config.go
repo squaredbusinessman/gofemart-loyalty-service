@@ -18,6 +18,7 @@ type Config struct {
 	RunAddress           string `env:"RUN_ADDRESS" env-default:"localhost:8080"`
 	DatabaseURI          string `env:"DATABASE_URI"`
 	AccrualSystemAddress string `env:"ACCRUAL_SYSTEM_ADDRESS"`
+	LogLevel             string `env:"LOG_LEVEL" env-default:"info"`
 }
 
 // Validate проверка конфигурации на старте запуска сервиса, чтобы отделить ошибки логики конфига от серверных
