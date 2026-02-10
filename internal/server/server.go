@@ -56,24 +56,27 @@ func (s *Server) Run(ctx context.Context) error {
 
 	go func() {
 		s.log.Info("http server starting", zap.String("addr", s.srv.Addr))
+		errCh <- s.srv.ListenAndServe()
 	}()
 
 	select {
 	case <-ctx.Done():
 		s.log.Info("shutdown requested", zap.Error(ctx.Err()))
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
+		defer cancel()
+
+		if err := s.srv.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shutdown: %w", err)
+		}
+
+		s.log.Info("shutdown complete")
+		return nil
+
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return fmt.Errorf("listen and serve: %w", err)
 		}
+		return nil
 	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
-	defer cancel()
-
-	if err := s.srv.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("shutdown: %w", err)
-	}
-
-	s.log.Info("shutdown complete")
-	return nil
 }
