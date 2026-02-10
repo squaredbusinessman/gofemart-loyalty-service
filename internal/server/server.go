@@ -66,8 +66,14 @@ func (s *Server) Run(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
 		defer cancel()
 
+		// попытка корректно остановить сервер
 		if err := s.srv.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("shutdown: %w", err)
+		}
+
+		// ждём завершения ListenAndServe и проверяем, что там не "реальная" ошибка
+		if err := <-errCh; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("listen and serve: %w", err)
 		}
 
 		s.log.Info("shutdown complete")
