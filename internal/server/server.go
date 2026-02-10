@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
 	"go.uber.org/zap"
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/logger"
 )
 
 type Config struct {
@@ -26,7 +28,7 @@ type Server struct {
 	cfg Config
 }
 
-func New(cfg Config, h http.Handler, log *zap.Logger) (*Server, error) {
+func New(cfg Config, h http.Handler, log *logger.LoggingWriter) (*Server, error) {
 	if cfg.Addr == "" {
 		return nil, fmt.Errorf("server addr is empty")
 	}

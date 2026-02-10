@@ -6,10 +6,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/app"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/config"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/logger"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/middleware"
@@ -33,33 +36,17 @@ func main() {
 	}
 
 	if err = logger.Initialize(cfg.LogLevel); err != nil {
-		log.Fatalf("init logger failure: %v", err)
+		_, _ = fmt.Fprintln(os.Stderr, "init logger:", err)
+		os.Exit(1)
 	}
-	defer logger.Log.Sync()
+	defer func() { _ = logger.Log.Sync() }()
 
-	var dbPool *pgxpool.Pool
+	// отменяем контекст по сигналу
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	if cfg.DatabaseURI != "" {
-		pool, err := pgxpool.New(context.Background(), cfg.DatabaseURI)
-		if err != nil {
-			log.Fatalf("db pool init failure: %v", err)
-		}
-		dbPool = pool
-		defer dbPool.Close()
-
-		if err = migrations.Up(dbPool, "migrations"); err != nil {
-			logger.Log.Error("migrations failure", zap.Error(err))
-		}
-
-		store := repository.NewDBStorage(dbPool)
-	}
-
-	r := chi.NewRouter()
-	r.Use(chiMiddleware.StripSlashes)
-
-	logger.Log.Info("Running server on: ", zap.String("address", cfg.RunAddress))
-	err = http.ListenAndServe(cfg.RunAddress, middleware.Conveyor(r))
-	if err != nil {
-		log.Fatalf("could not start server: %v", err)
+	if err := app.Run(ctx, cfg, logger.Log); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
