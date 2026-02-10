@@ -3,22 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/go-chi/chi/v5"
-	chiMiddleware "github.com/go-chi/chi/v5/middleware"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/app"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/config"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/logger"
-	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/middleware"
-	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/migrations"
-	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/repository"
-	"go.uber.org/zap"
 )
 
 func main() {

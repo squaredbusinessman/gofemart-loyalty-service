@@ -10,14 +10,14 @@ import (
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/config"
-	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/logger"
 	myMiddleware "github.com/squaredbusinessman/gofemart-loyalty-service/internal/middleware"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/migrations"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/repository"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/server"
+	"go.uber.org/zap"
 )
 
-func Run(ctx context.Context, cfg config.Config, log *logger.LoggingWriter) error {
+func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	// контекст-таймаут для старта БД, чтобы избежать зависаний при запуске сервиса
 	startCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -62,7 +62,7 @@ func Run(ctx context.Context, cfg config.Config, log *logger.LoggingWriter) erro
 	return srv.Run(ctx)
 }
 
-func buildHandlers(_ *logger.LoggingWriter) http.Handler {
+func buildHandlers(_ *zap.Logger) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chiMiddleware.StripSlashes)
