@@ -10,6 +10,7 @@ require (
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.27.1
+	golang.org/x/crypto v0.40.0
 )
 
 require (
