@@ -68,10 +68,10 @@ func (tm *TokenManager) ParseToken(token string) (int64, error) {
 
 	mac := hmac.New(sha256.New, tm.secret)
 	_, _ = mac.Write([]byte(payload))
-	expextedSig := mac.Sum(nil)
+	expectedSig := mac.Sum(nil)
 
 	gotSig, err := base64.RawURLEncoding.DecodeString(sig)
-	if err != nil || !hmac.Equal(gotSig, expextedSig) {
+	if err != nil || !hmac.Equal(gotSig, expectedSig) {
 		return 0, ErrInvalidToken
 	}
 
