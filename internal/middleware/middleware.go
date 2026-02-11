@@ -1,10 +1,7 @@
 package middleware
 
 import (
-	"bytes"
-	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/logger"
@@ -35,38 +32,4 @@ func RequestLogger(next http.Handler) http.Handler {
 			zap.Duration("latency", time.Since(start)),
 		)
 	})
-}
-
-func HashMiddleware(key string) Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			if key == "" {
-				next.ServeHTTP(writer, request)
-				return
-			}
-
-			got := request.Header.Get("HashSHA256")
-			if got != "" {
-				body, err := io.ReadAll(request.Body)
-				if err != nil {
-					http.Error(writer, "bad request", http.StatusBadRequest)
-					return
-				}
-				_ = request.Body.Close()
-				computed := sha256hex(body, key)
-				if !strings.EqualFold(got, computed) {
-					http.Error(writer, "bad hash", http.StatusBadRequest)
-					return
-				}
-				request.Body = io.NopCloser(bytes.NewReader(body))
-			}
-
-			rec := NewRecorder(writer)
-			next.ServeHTTP(rec, request)
-
-			sum := sha256hex(rec.Body(), key)
-			rec.Header().Set("HashSHA256", sum)
-			rec.FlushTo(writer)
-		})
-	}
 }
