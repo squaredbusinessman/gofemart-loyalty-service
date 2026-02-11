@@ -11,9 +11,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/config"
 	myMiddleware "github.com/squaredbusinessman/gofemart-loyalty-service/internal/middleware"
-	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/migrations"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/repository"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/server"
+	"github.com/squaredbusinessman/gofemart-loyalty-service/migrations"
 	"go.uber.org/zap"
 )
 
