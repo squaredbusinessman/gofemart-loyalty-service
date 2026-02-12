@@ -20,14 +20,13 @@ type TokenParser interface {
 func AuthMiddleware(tm TokenParser) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			authHeader := request.Header.Get("Authorization")
-			if !strings.HasPrefix(authHeader, "Bearer ") {
+			cookie, err := request.Cookie("auth_token")
+			if err != nil || strings.TrimSpace(cookie.Value) == "" {
 				http.Error(writer, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 
-			token := strings.TrimPrefix(authHeader, "Bearer ")
-			userID, err := tm.ParseToken(token)
+			userID, err := tm.ParseToken(cookie.Value)
 			if err != nil && (errors.Is(err, auth.ErrInvalidToken) || errors.Is(err, auth.ErrExpiredToken)) {
 				http.Error(writer, "unauthorized", http.StatusUnauthorized)
 				return

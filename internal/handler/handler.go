@@ -14,6 +14,20 @@ import (
 type TokenGenerator interface {
 	GenerateToken(userID int64) (string, error)
 }
+
+const authCookieName = "auth_token"
+
+func setAuthCookie(writer http.ResponseWriter, request *http.Request, token string) {
+	http.SetCookie(writer, &http.Cookie{
+		Name:     authCookieName,
+		Value:    token,
+		Path:     "/",
+		Secure:   request.TLS != nil,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
 type Handler struct {
 	ur repository.UserRepository
 	tg TokenGenerator
@@ -72,7 +86,7 @@ func (h *Handler) Register(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	writer.Header().Set("Authorization", "Bearer "+token)
+	setAuthCookie(writer, request, token)
 	writer.WriteHeader(http.StatusOK)
 }
 
@@ -120,6 +134,6 @@ func (h *Handler) Login(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	writer.Header().Set("Authorization", "Bearer "+token)
+	setAuthCookie(writer, request, token)
 	writer.WriteHeader(http.StatusOK)
 }
