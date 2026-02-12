@@ -1,0 +1,208 @@
+package handler
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/auth"
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/model"
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/repository"
+)
+
+type stubUserRepo struct {
+	createUserFn    func(ctx context.Context, login, passwordHash string) (int64, error)
+	getUserByLoginFn func(ctx context.Context, login string) (model.User, error)
+}
+
+func (s stubUserRepo) CreateUser(ctx context.Context, login, passwordHash string) (int64, error) {
+	return s.createUserFn(ctx, login, passwordHash)
+}
+
+func (s stubUserRepo) GetUserByLogin(ctx context.Context, login string) (model.User, error) {
+	return s.getUserByLoginFn(ctx, login)
+}
+
+type stubTokenGenerator struct {
+	generateTokenFn func(userID int64) (string, error)
+}
+
+func (s stubTokenGenerator) GenerateToken(userID int64) (string, error) {
+	return s.generateTokenFn(userID)
+}
+
+func TestRegister_StatusCodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		body       string
+		repo       stubUserRepo
+		tokenGen   stubTokenGenerator
+		wantStatus int
+	}{
+		{
+			name: "400 bad json",
+			body: "{",
+			repo: stubUserRepo{
+				createUserFn: func(ctx context.Context, login, passwordHash string) (int64, error) {
+					return 1, nil
+				},
+				getUserByLoginFn: func(ctx context.Context, login string) (model.User, error) {
+					return model.User{}, nil
+				},
+			},
+			tokenGen: stubTokenGenerator{
+				generateTokenFn: func(userID int64) (string, error) { return "token", nil },
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "409 login exists",
+			body: `{"login":"user","password":"pass"}`,
+			repo: stubUserRepo{
+				createUserFn: func(ctx context.Context, login, passwordHash string) (int64, error) {
+					return 0, repository.ErrUserAlreadyExists
+				},
+				getUserByLoginFn: func(ctx context.Context, login string) (model.User, error) {
+					return model.User{}, nil
+				},
+			},
+			tokenGen: stubTokenGenerator{
+				generateTokenFn: func(userID int64) (string, error) { return "token", nil },
+			},
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name: "500 repo failure",
+			body: `{"login":"user","password":"pass"}`,
+			repo: stubUserRepo{
+				createUserFn: func(ctx context.Context, login, passwordHash string) (int64, error) {
+					return 0, errors.New("db down")
+				},
+				getUserByLoginFn: func(ctx context.Context, login string) (model.User, error) {
+					return model.User{}, nil
+				},
+			},
+			tokenGen: stubTokenGenerator{
+				generateTokenFn: func(userID int64) (string, error) { return "token", nil },
+			},
+			wantStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := NewHandler(tt.repo, tt.tokenGen)
+			req := httptest.NewRequest(http.MethodPost, "/api/user/register", strings.NewReader(tt.body))
+			res := httptest.NewRecorder()
+
+			h.Register(res, req)
+
+			require.Equal(t, tt.wantStatus, res.Code)
+		})
+	}
+}
+
+func TestLogin_StatusCodes(t *testing.T) {
+	t.Parallel()
+
+	validHash, err := auth.HashPassword("correct-password")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name       string
+		body       string
+		repo       stubUserRepo
+		tokenGen   stubTokenGenerator
+		wantStatus int
+	}{
+		{
+			name: "400 bad json",
+			body: "{",
+			repo: stubUserRepo{
+				createUserFn: func(ctx context.Context, login, passwordHash string) (int64, error) {
+					return 1, nil
+				},
+				getUserByLoginFn: func(ctx context.Context, login string) (model.User, error) {
+					return model.User{}, nil
+				},
+			},
+			tokenGen: stubTokenGenerator{
+				generateTokenFn: func(userID int64) (string, error) { return "token", nil },
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "401 invalid credentials user not found",
+			body: `{"login":"missing","password":"pass"}`,
+			repo: stubUserRepo{
+				createUserFn: func(ctx context.Context, login, passwordHash string) (int64, error) {
+					return 1, nil
+				},
+				getUserByLoginFn: func(ctx context.Context, login string) (model.User, error) {
+					return model.User{}, repository.ErrUserNotFound
+				},
+			},
+			tokenGen: stubTokenGenerator{
+				generateTokenFn: func(userID int64) (string, error) { return "token", nil },
+			},
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name: "500 repo failure",
+			body: `{"login":"user","password":"pass"}`,
+			repo: stubUserRepo{
+				createUserFn: func(ctx context.Context, login, passwordHash string) (int64, error) {
+					return 1, nil
+				},
+				getUserByLoginFn: func(ctx context.Context, login string) (model.User, error) {
+					return model.User{}, errors.New("db down")
+				},
+			},
+			tokenGen: stubTokenGenerator{
+				generateTokenFn: func(userID int64) (string, error) { return "token", nil },
+			},
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name: "401 invalid credentials wrong password",
+			body: `{"login":"user","password":"wrong-password"}`,
+			repo: stubUserRepo{
+				createUserFn: func(ctx context.Context, login, passwordHash string) (int64, error) {
+					return 1, nil
+				},
+				getUserByLoginFn: func(ctx context.Context, login string) (model.User, error) {
+					return model.User{ID: 10, Login: "user", PasswordHash: validHash}, nil
+				},
+			},
+			tokenGen: stubTokenGenerator{
+				generateTokenFn: func(userID int64) (string, error) { return "token", nil },
+			},
+			wantStatus: http.StatusUnauthorized,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := NewHandler(tt.repo, tt.tokenGen)
+			req := httptest.NewRequest(http.MethodPost, "/api/user/login", strings.NewReader(tt.body))
+			res := httptest.NewRecorder()
+
+			h.Login(res, req)
+
+			require.Equal(t, tt.wantStatus, res.Code)
+		})
+	}
+}
