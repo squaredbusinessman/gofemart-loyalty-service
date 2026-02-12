@@ -21,12 +21,12 @@ func AuthMiddleware(tm TokenParser) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			authHeader := request.Header.Get("Authorization")
-			if !strings.HasPrefix(authHeader, "Bearer") {
+			if !strings.HasPrefix(authHeader, "Bearer ") {
 				http.Error(writer, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 
-			token := strings.TrimPrefix(authHeader, "Bearer")
+			token := strings.TrimPrefix(authHeader, "Bearer ")
 			userID, err := tm.ParseToken(token)
 			if err != nil && (errors.Is(err, auth.ErrInvalidToken) || errors.Is(err, auth.ErrExpiredToken)) {
 				http.Error(writer, "unauthorized", http.StatusUnauthorized)
