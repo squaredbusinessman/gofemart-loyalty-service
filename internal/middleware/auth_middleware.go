@@ -30,6 +30,7 @@ func AuthMiddleware(tm TokenParser) Middleware {
 			userID, err := tm.ParseToken(token)
 			if err != nil && (errors.Is(err, auth.ErrInvalidToken) || errors.Is(err, auth.ErrExpiredToken)) {
 				http.Error(writer, "unauthorized", http.StatusUnauthorized)
+				return
 			}
 			if err != nil {
 				http.Error(writer, "internal server error", http.StatusInternalServerError)

@@ -85,7 +85,7 @@ func (s *DBStorage) GetUserByLogin(ctx context.Context, login string) (model.Use
 	err = s.pool.QueryRow(ctx, q, args...).Scan(&user.ID, &user.Login, &user.PasswordHash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return model.User{}, fmt.Errorf("get user by login: %w", err)
+			return model.User{}, fmt.Errorf("get user by login: %w", ErrUserNotFound)
 		}
 		return model.User{}, fmt.Errorf("get user by login: %w", err)
 	}
