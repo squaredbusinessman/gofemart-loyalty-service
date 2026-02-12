@@ -9,7 +9,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/auth"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/config"
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/handler"
 	myMiddleware "github.com/squaredbusinessman/gofemart-loyalty-service/internal/middleware"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/repository"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/server"
@@ -40,10 +42,15 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 
 	// инициализируем хранилище, но пока без ручек
 	store := repository.NewDBStorage(pool)
-	_ = store
-
+	// менеджер токена
+	tm, err := auth.NewTokenManager(cfg.AuthSecret, cfg.AuthTokenTTL)
+	if err != nil {
+		return fmt.Errorf("init token manager: %w", err)
+	}
+	// хэндлеры
+	h := handler.NewHandler(store, tm)
 	// собираем ручки и миддлвары
-	h := buildHandlers(log)
+	resultHandlers := buildHandlers(log, h, tm)
 
 	// запуск http server из одноименного пакета сервиса
 	// таймауты пока что хардкодим
@@ -54,7 +61,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		ShutdownTimeout:   10 * time.Second,
-	}, h, log)
+	}, resultHandlers, log)
 	if err != nil {
 		return fmt.Errorf("init http server: %w", err)
 	}
@@ -62,10 +69,18 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	return srv.Run(ctx)
 }
 
-func buildHandlers(_ *zap.Logger) http.Handler {
+func buildHandlers(_ *zap.Logger, h *handler.Handler, tp myMiddleware.TokenParser) http.Handler {
 	r := chi.NewRouter()
-
 	r.Use(chiMiddleware.StripSlashes)
+
+	// открытые маршруты
+	r.Post("/api/user/register", h.Register)
+	r.Post("/api/user/login", h.Login)
+
+	// закрытые маршруты
+	r.Group(func(protectedRoutes chi.Router) {
+		protectedRoutes.Use(myMiddleware.AuthMiddleware(tp))
+	})
 
 	return myMiddleware.Conveyor(r)
 }
