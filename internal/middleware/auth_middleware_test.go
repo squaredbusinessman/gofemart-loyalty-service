@@ -24,13 +24,13 @@ func TestAuthMiddleware_StatusCodes(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		authHeader string
+		cookie     *http.Cookie
 		parser     stubTokenParser
 		wantStatus int
 	}{
 		{
 			name:       "401 without token",
-			authHeader: "",
+			cookie:     nil,
 			parser: stubTokenParser{
 				parseTokenFn: func(token string) (int64, error) {
 					return 0, nil
@@ -40,7 +40,7 @@ func TestAuthMiddleware_StatusCodes(t *testing.T) {
 		},
 		{
 			name:       "401 invalid token",
-			authHeader: "Bearer bad-token",
+			cookie:     &http.Cookie{Name: "auth_token", Value: "bad-token"},
 			parser: stubTokenParser{
 				parseTokenFn: func(token string) (int64, error) {
 					return 0, auth.ErrInvalidToken
@@ -50,7 +50,7 @@ func TestAuthMiddleware_StatusCodes(t *testing.T) {
 		},
 		{
 			name:       "401 expired token",
-			authHeader: "Bearer expired-token",
+			cookie:     &http.Cookie{Name: "auth_token", Value: "expired-token"},
 			parser: stubTokenParser{
 				parseTokenFn: func(token string) (int64, error) {
 					return 0, auth.ErrExpiredToken
@@ -60,7 +60,7 @@ func TestAuthMiddleware_StatusCodes(t *testing.T) {
 		},
 		{
 			name:       "500 parser internal error",
-			authHeader: "Bearer any",
+			cookie:     &http.Cookie{Name: "auth_token", Value: "any"},
 			parser: stubTokenParser{
 				parseTokenFn: func(token string) (int64, error) {
 					return 0, errors.New("parser failure")
@@ -70,7 +70,7 @@ func TestAuthMiddleware_StatusCodes(t *testing.T) {
 		},
 		{
 			name:       "200 valid token",
-			authHeader: "Bearer good-token",
+			cookie:     &http.Cookie{Name: "auth_token", Value: "good-token"},
 			parser: stubTokenParser{
 				parseTokenFn: func(token string) (int64, error) {
 					return 42, nil
@@ -96,8 +96,8 @@ func TestAuthMiddleware_StatusCodes(t *testing.T) {
 
 			h := AuthMiddleware(tt.parser)(next)
 			req := httptest.NewRequest(http.MethodGet, "/protected", nil)
-			if tt.authHeader != "" {
-				req.Header.Set("Authorization", tt.authHeader)
+			if tt.cookie != nil {
+				req.AddCookie(tt.cookie)
 			}
 			res := httptest.NewRecorder()
 

@@ -206,3 +206,70 @@ func TestLogin_StatusCodes(t *testing.T) {
 		})
 	}
 }
+
+func TestRegister_SetsAuthCookieOnSuccess(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(
+		stubUserRepo{
+			createUserFn: func(ctx context.Context, login, passwordHash string) (int64, error) {
+				return 7, nil
+			},
+			getUserByLoginFn: func(ctx context.Context, login string) (model.User, error) {
+				return model.User{}, nil
+			},
+		},
+		stubTokenGenerator{
+			generateTokenFn: func(userID int64) (string, error) {
+				require.Equal(t, int64(7), userID)
+				return "signed-token", nil
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/user/register", strings.NewReader(`{"login":"user","password":"pass"}`))
+	res := httptest.NewRecorder()
+
+	h.Register(res, req)
+
+	require.Equal(t, http.StatusOK, res.Code)
+	cookies := res.Result().Cookies()
+	require.NotEmpty(t, cookies)
+	require.Equal(t, authCookieName, cookies[0].Name)
+	require.Equal(t, "signed-token", cookies[0].Value)
+}
+
+func TestLogin_SetsAuthCookieOnSuccess(t *testing.T) {
+	t.Parallel()
+
+	validHash, err := auth.HashPassword("correct-password")
+	require.NoError(t, err)
+
+	h := NewHandler(
+		stubUserRepo{
+			createUserFn: func(ctx context.Context, login, passwordHash string) (int64, error) {
+				return 0, nil
+			},
+			getUserByLoginFn: func(ctx context.Context, login string) (model.User, error) {
+				return model.User{ID: 21, Login: "user", PasswordHash: validHash}, nil
+			},
+		},
+		stubTokenGenerator{
+			generateTokenFn: func(userID int64) (string, error) {
+				require.Equal(t, int64(21), userID)
+				return "signed-token-login", nil
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/user/login", strings.NewReader(`{"login":"user","password":"correct-password"}`))
+	res := httptest.NewRecorder()
+
+	h.Login(res, req)
+
+	require.Equal(t, http.StatusOK, res.Code)
+	cookies := res.Result().Cookies()
+	require.NotEmpty(t, cookies)
+	require.Equal(t, authCookieName, cookies[0].Name)
+	require.Equal(t, "signed-token-login", cookies[0].Value)
+}
