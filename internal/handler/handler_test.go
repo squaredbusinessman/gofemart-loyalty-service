@@ -392,10 +392,26 @@ func TestUploadOrder_StatusCodes(t *testing.T) {
 			wantSvcCalled: false,
 		},
 		{
-			name:        "422 invalid order number",
+			name:        "400 invalid order number format",
 			method:      http.MethodPost,
 			contentType: "text/plain",
 			body:        "invalid-order",
+			withAuth:    true,
+			service: stubOrderService{
+				submitOrderFn: func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
+					return 0, service.ErrOrderNumberFormat
+				},
+			},
+			wantStatus:    http.StatusBadRequest,
+			wantSvcCalled: true,
+			wantUserID:    42,
+			wantBody:      "invalid-order",
+		},
+		{
+			name:        "422 invalid luhn order number",
+			method:      http.MethodPost,
+			contentType: "text/plain",
+			body:        "12345678901",
 			withAuth:    true,
 			service: stubOrderService{
 				submitOrderFn: func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
@@ -405,7 +421,7 @@ func TestUploadOrder_StatusCodes(t *testing.T) {
 			wantStatus:    http.StatusUnprocessableEntity,
 			wantSvcCalled: true,
 			wantUserID:    42,
-			wantBody:      "invalid-order",
+			wantBody:      "12345678901",
 		},
 		{
 			name:        "409 uploaded by another user",

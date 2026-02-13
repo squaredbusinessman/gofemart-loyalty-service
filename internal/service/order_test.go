@@ -46,7 +46,7 @@ func TestOrderService_SubmitOrder(t *testing.T) {
 		wantRepoCall bool
 	}{
 		{
-			name:      "422 when contains non digits",
+			name:      "400 when contains non digits",
 			userID:    11,
 			rawNumber: "12ab34",
 			repo: stubOrderRepository{
@@ -54,7 +54,19 @@ func TestOrderService_SubmitOrder(t *testing.T) {
 					return false, 0, nil
 				},
 			},
-			wantErr:      ErrInvalidOrderNumber,
+			wantErr:      ErrOrderNumberFormat,
+			wantRepoCall: false,
+		},
+		{
+			name:      "400 when number is empty after trim",
+			userID:    11,
+			rawNumber: "   \n",
+			repo: stubOrderRepository{
+				createOrderIfNotExistsFn: func(ctx context.Context, userID int64, number string) (bool, int64, error) {
+					return false, 0, nil
+				},
+			},
+			wantErr:      ErrOrderNumberFormat,
 			wantRepoCall: false,
 		},
 		{

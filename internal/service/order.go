@@ -16,6 +16,7 @@ const (
 )
 
 var (
+	ErrOrderNumberFormat          = errors.New("order number format is invalid") // 400
 	ErrInvalidOrderNumber         = errors.New("invalid order number")           // 422
 	ErrOrderUploadedByAnotherUser = errors.New("order uploaded by another user") // 409
 )
@@ -45,7 +46,10 @@ func NewOrderService(repo OrderRepository) OrderService {
 
 func (s *orderService) SubmitOrder(ctx context.Context, userID int64, rawNumber string) (SubmitOrderResult, error) {
 	number := strings.TrimSpace(rawNumber)
-	if !isDigits(number) || !isValidLuhn(number) {
+	if !isDigits(number) {
+		return 0, ErrOrderNumberFormat
+	}
+	if !isValidLuhn(number) {
 		return 0, ErrInvalidOrderNumber
 	}
 

@@ -177,6 +177,8 @@ func (h *Handler) UploadOrder(writer http.ResponseWriter, request *http.Request)
 	result, err := h.orderSvc.SubmitOrder(request.Context(), userID, string(bodyBytes))
 	if err != nil {
 		switch {
+		case errors.Is(err, service.ErrOrderNumberFormat):
+			http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest) // 400
 		case errors.Is(err, service.ErrInvalidOrderNumber):
 			http.Error(writer, http.StatusText(http.StatusUnprocessableEntity), http.StatusUnprocessableEntity) // 422
 		case errors.Is(err, service.ErrOrderUploadedByAnotherUser):
