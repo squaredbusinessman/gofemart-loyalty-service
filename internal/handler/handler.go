@@ -164,7 +164,7 @@ func (h *Handler) UploadOrder(writer http.ResponseWriter, request *http.Request)
 	ct := request.Header.Get("Content-Type")
 	mediaType, _, err := mime.ParseMediaType(ct)
 	if err != nil || mediaType != contentTypeTextPlain {
-		http.Error(writer, http.StatusText(http.StatusUnsupportedMediaType), http.StatusUnsupportedMediaType)
+		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
