@@ -156,6 +156,7 @@ func (h *Handler) UploadOrder(writer http.ResponseWriter, request *http.Request)
 	userID, ok := middleware.UserIDFromContext(request.Context())
 	if !ok {
 		http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
 	}
 
 	// проверка Content-Type, чтобы не ломаться на "text/plain; charset=utf-8"
