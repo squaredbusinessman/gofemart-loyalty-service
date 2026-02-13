@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/model"
 )
 
 type SubmitOrderResult int
@@ -20,10 +22,12 @@ var (
 
 type OrderRepository interface {
 	CreateOrderIfNotExists(ctx context.Context, userID int64, number string) (created bool, ownerID int64, err error)
+	ListOrdersByUser(ctx context.Context, userID int64) ([]model.Order, error)
 }
 
 type OrderService interface {
 	SubmitOrder(ctx context.Context, userID int64, rawNumber string) (SubmitOrderResult, error)
+	GetUserOrders(ctx context.Context, userID int64) ([]model.Order, error)
 }
 
 type orderService struct {
@@ -58,4 +62,8 @@ func (s *orderService) SubmitOrder(ctx context.Context, userID int64, rawNumber 
 	}
 
 	return 0, ErrOrderUploadedByAnotherUser
+}
+
+func (s *orderService) GetUserOrders(ctx context.Context, userID int64) ([]model.Order, error) {
+	return s.repo.ListOrdersByUser(ctx, userID)
 }

@@ -196,3 +196,32 @@ func (h *Handler) UploadOrder(writer http.ResponseWriter, request *http.Request)
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 	}
 }
+
+func (h *Handler) GetOrders(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, ok := middleware.UserIDFromContext(request.Context())
+	if !ok {
+		http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized) // 401
+		return
+	}
+
+	orders, err := h.orderSvc.GetUserOrders(request.Context(), userID)
+	if err != nil {
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError) // 500
+	}
+
+	if len(orders) == 0 {
+		writer.WriteHeader(http.StatusNoContent) // 204
+		return
+	}
+
+	writer.Header().Set("Content-Type", contentAppJSON)
+	if err = json.NewEncoder(writer).Encode(orders); err != nil {
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+}
