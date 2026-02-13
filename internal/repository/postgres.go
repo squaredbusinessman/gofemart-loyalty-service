@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/model"
 )
@@ -130,4 +131,48 @@ func (s *DBStorage) CreateOrderIfNotExists(ctx context.Context, userID int64, nu
 	}
 
 	return false, ownerID, nil
+}
+
+func (s *DBStorage) ListOrdersByUser(ctx context.Context, userID int64) ([]model.Order, error) {
+	q, args, err := psql.
+		Select("number", "status", "accrual", "uploaded_at").
+		From("orders").
+		Where(squirrel.Eq{"user_id": userID}).
+		OrderBy("uploaded_at DESC").
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build list user orders query: %w", err)
+	}
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list user orders: %w", err)
+	}
+	defer rows.Close()
+
+	orders := make([]model.Order, 0)
+
+	for rows.Next() {
+		var o model.Order
+		var accrual pgtype.Numeric
+		if err = rows.Scan(&o.Number, &o.Status, &accrual, &o.UploadedAt); err != nil {
+			return nil, fmt.Errorf("scan user order: %w", err)
+		}
+
+		if accrual.Valid {
+			f, convErr := accrual.Float64Value()
+			if convErr != nil {
+				return nil, fmt.Errorf("convert accrual: %w", err)
+			}
+			o.Accrual = &f.Float64
+		}
+
+		orders = append(orders, o)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate user orders: %w", err)
+	}
+
+	return orders, nil
 }
