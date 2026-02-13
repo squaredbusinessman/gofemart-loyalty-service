@@ -20,6 +20,7 @@ import (
 type stubUserRepo struct {
 	createUserFn    func(ctx context.Context, login, passwordHash string) (int64, error)
 	getUserByLoginFn func(ctx context.Context, login string) (model.User, error)
+	createOrderIfNotExistsFn func(ctx context.Context, userID int64, number string) (created bool, ownerID int64, err error)
 }
 
 func (s stubUserRepo) CreateUser(ctx context.Context, login, passwordHash string) (int64, error) {
@@ -30,12 +31,27 @@ func (s stubUserRepo) GetUserByLogin(ctx context.Context, login string) (model.U
 	return s.getUserByLoginFn(ctx, login)
 }
 
+func (s stubUserRepo) CreateOrderIfNotExists(ctx context.Context, userID int64, number string) (created bool, ownerID int64, err error) {
+	if s.createOrderIfNotExistsFn == nil {
+		return false, 0, errors.New("unexpected CreateOrderIfNotExists call")
+	}
+	return s.createOrderIfNotExistsFn(ctx, userID, number)
+}
+
 type stubTokenGenerator struct {
 	generateTokenFn func(userID int64) (string, error)
 }
 
 func (s stubTokenGenerator) GenerateToken(userID int64) (string, error) {
 	return s.generateTokenFn(userID)
+}
+
+func newNoopOrderService() stubOrderService {
+	return stubOrderService{
+		submitOrderFn: func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
+			return service.SubmitOrderAccepted, nil
+		},
+	}
 }
 
 type stubOrderService struct {
@@ -119,7 +135,7 @@ func TestRegister_StatusCodes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := NewHandler(tt.repo, tt.tokenGen)
+			h := NewHandler(tt.repo, tt.tokenGen, newNoopOrderService())
 			req := httptest.NewRequest(http.MethodPost, "/api/user/register", strings.NewReader(tt.body))
 			res := httptest.NewRecorder()
 
@@ -214,7 +230,7 @@ func TestLogin_StatusCodes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := NewHandler(tt.repo, tt.tokenGen)
+			h := NewHandler(tt.repo, tt.tokenGen, newNoopOrderService())
 			req := httptest.NewRequest(http.MethodPost, "/api/user/login", strings.NewReader(tt.body))
 			res := httptest.NewRecorder()
 
@@ -243,6 +259,7 @@ func TestRegister_SetsAuthCookieOnSuccess(t *testing.T) {
 				return "signed-token", nil
 			},
 		},
+		newNoopOrderService(),
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/user/register", strings.NewReader(`{"login":"user","password":"pass"}`))
@@ -278,6 +295,7 @@ func TestLogin_SetsAuthCookieOnSuccess(t *testing.T) {
 				return "signed-token-login", nil
 			},
 		},
+		newNoopOrderService(),
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/user/login", strings.NewReader(`{"login":"user","password":"correct-password"}`))
@@ -336,7 +354,7 @@ func TestUploadOrder_StatusCodes(t *testing.T) {
 			wantSvcCalled: false,
 		},
 		{
-			name:        "415 unsupported content type",
+			name:        "400 unsupported content type",
 			method:      http.MethodPost,
 			contentType: "application/json",
 			body:        "79927398713",
@@ -346,7 +364,7 @@ func TestUploadOrder_StatusCodes(t *testing.T) {
 					return service.SubmitOrderAccepted, nil
 				},
 			},
-			wantStatus:    http.StatusUnsupportedMediaType,
+			wantStatus:    http.StatusBadRequest,
 			wantSvcCalled: false,
 		},
 		{
