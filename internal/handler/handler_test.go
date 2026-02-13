@@ -2,11 +2,13 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -18,9 +20,10 @@ import (
 )
 
 type stubUserRepo struct {
-	createUserFn    func(ctx context.Context, login, passwordHash string) (int64, error)
-	getUserByLoginFn func(ctx context.Context, login string) (model.User, error)
+	createUserFn             func(ctx context.Context, login, passwordHash string) (int64, error)
+	getUserByLoginFn         func(ctx context.Context, login string) (model.User, error)
 	createOrderIfNotExistsFn func(ctx context.Context, userID int64, number string) (created bool, ownerID int64, err error)
+	listOrdersByUserFn       func(ctx context.Context, userID int64) ([]model.Order, error)
 }
 
 func (s stubUserRepo) CreateUser(ctx context.Context, login, passwordHash string) (int64, error) {
@@ -38,6 +41,13 @@ func (s stubUserRepo) CreateOrderIfNotExists(ctx context.Context, userID int64, 
 	return s.createOrderIfNotExistsFn(ctx, userID, number)
 }
 
+func (s stubUserRepo) ListOrdersByUser(ctx context.Context, userID int64) ([]model.Order, error) {
+	if s.listOrdersByUserFn == nil {
+		return nil, errors.New("unexpected ListOrdersByUser call")
+	}
+	return s.listOrdersByUserFn(ctx, userID)
+}
+
 type stubTokenGenerator struct {
 	generateTokenFn func(userID int64) (string, error)
 }
@@ -51,15 +61,29 @@ func newNoopOrderService() stubOrderService {
 		submitOrderFn: func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
 			return service.SubmitOrderAccepted, nil
 		},
+		getUserOrdersFn: func(ctx context.Context, userID int64) ([]model.Order, error) {
+			return nil, nil
+		},
 	}
 }
 
 type stubOrderService struct {
-	submitOrderFn func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error)
+	submitOrderFn   func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error)
+	getUserOrdersFn func(ctx context.Context, userID int64) ([]model.Order, error)
 }
 
 func (s stubOrderService) SubmitOrder(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
+	if s.submitOrderFn == nil {
+		return 0, errors.New("unexpected SubmitOrder call")
+	}
 	return s.submitOrderFn(ctx, userID, rawNumber)
+}
+
+func (s stubOrderService) GetUserOrders(ctx context.Context, userID int64) ([]model.Order, error) {
+	if s.getUserOrdersFn == nil {
+		return nil, errors.New("unexpected GetUserOrders call")
+	}
+	return s.getUserOrdersFn(ctx, userID)
 }
 
 type stubTokenParser struct {
@@ -494,6 +518,187 @@ func TestUploadOrder_StatusCodes(t *testing.T) {
 			if tt.wantSvcCalled {
 				require.Equal(t, tt.wantUserID, gotUserID)
 				require.Equal(t, tt.wantBody, gotBody)
+			}
+		})
+	}
+}
+
+func TestGetOrders_StatusCodes(t *testing.T) {
+	t.Parallel()
+
+	accrual := 500.0
+	firstUploadedAt := time.Date(2026, 2, 13, 10, 0, 0, 0, time.UTC)
+	secondUploadedAt := time.Date(2026, 2, 13, 9, 45, 0, 0, time.UTC)
+
+	tests := []struct {
+		name          string
+		method        string
+		withAuth      bool
+		service       stubOrderService
+		wantStatus    int
+		wantSvcCalled bool
+		wantUserID    int64
+		wantBody      string
+		wantOrders    []model.Order
+	}{
+		{
+			name:     "405 method not allowed",
+			method:   http.MethodPost,
+			withAuth: true,
+			service: stubOrderService{
+				getUserOrdersFn: func(ctx context.Context, userID int64) ([]model.Order, error) {
+					return nil, nil
+				},
+			},
+			wantStatus:    http.StatusMethodNotAllowed,
+			wantSvcCalled: false,
+		},
+		{
+			name:     "401 without auth context",
+			method:   http.MethodGet,
+			withAuth: false,
+			service: stubOrderService{
+				getUserOrdersFn: func(ctx context.Context, userID int64) ([]model.Order, error) {
+					return nil, nil
+				},
+			},
+			wantStatus:    http.StatusUnauthorized,
+			wantSvcCalled: false,
+		},
+		{
+			name:     "500 service error",
+			method:   http.MethodGet,
+			withAuth: true,
+			service: stubOrderService{
+				getUserOrdersFn: func(ctx context.Context, userID int64) ([]model.Order, error) {
+					return []model.Order{
+						{
+							Number:     "12345678903",
+							Status:     "PROCESSING",
+							UploadedAt: firstUploadedAt,
+						},
+					}, errors.New("db down")
+				},
+			},
+			wantStatus:    http.StatusInternalServerError,
+			wantSvcCalled: true,
+			wantUserID:    42,
+			wantBody:      "Internal Server Error\n",
+		},
+		{
+			name:     "204 no content when no orders",
+			method:   http.MethodGet,
+			withAuth: true,
+			service: stubOrderService{
+				getUserOrdersFn: func(ctx context.Context, userID int64) ([]model.Order, error) {
+					return []model.Order{}, nil
+				},
+			},
+			wantStatus:    http.StatusNoContent,
+			wantSvcCalled: true,
+			wantUserID:    42,
+		},
+		{
+			name:     "200 json orders",
+			method:   http.MethodGet,
+			withAuth: true,
+			service: stubOrderService{
+				getUserOrdersFn: func(ctx context.Context, userID int64) ([]model.Order, error) {
+					return []model.Order{
+						{
+							Number:     "9278923470",
+							Status:     "PROCESSED",
+							Accrual:    &accrual,
+							UploadedAt: firstUploadedAt,
+						},
+						{
+							Number:     "12345678903",
+							Status:     "PROCESSING",
+							UploadedAt: secondUploadedAt,
+						},
+					}, nil
+				},
+			},
+			wantStatus:    http.StatusOK,
+			wantSvcCalled: true,
+			wantUserID:    42,
+			wantOrders: []model.Order{
+				{
+					Number:     "9278923470",
+					Status:     "PROCESSED",
+					Accrual:    &accrual,
+					UploadedAt: firstUploadedAt,
+				},
+				{
+					Number:     "12345678903",
+					Status:     "PROCESSING",
+					UploadedAt: secondUploadedAt,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			svcCalled := false
+			var gotUserID int64
+
+			h := &Handler{
+				orderSvc: stubOrderService{
+					getUserOrdersFn: func(ctx context.Context, userID int64) ([]model.Order, error) {
+						svcCalled = true
+						gotUserID = userID
+						return tt.service.GetUserOrders(ctx, userID)
+					},
+				},
+			}
+
+			req := httptest.NewRequest(tt.method, "/api/user/orders", nil)
+			res := httptest.NewRecorder()
+
+			if tt.withAuth {
+				req.AddCookie(&http.Cookie{Name: authCookieName, Value: "valid-token"})
+				wrapped := middleware.AuthMiddleware(stubTokenParser{
+					parseTokenFn: func(token string) (int64, error) {
+						require.Equal(t, "valid-token", token)
+						return 42, nil
+					},
+				})(http.HandlerFunc(h.GetOrders))
+				wrapped.ServeHTTP(res, req)
+			} else {
+				h.GetOrders(res, req)
+			}
+
+			require.Equal(t, tt.wantStatus, res.Code)
+			require.Equal(t, tt.wantSvcCalled, svcCalled)
+			if tt.wantSvcCalled {
+				require.Equal(t, tt.wantUserID, gotUserID)
+			}
+
+			if tt.wantBody != "" {
+				require.Equal(t, tt.wantBody, res.Body.String())
+			}
+
+			if tt.wantOrders != nil {
+				require.Equal(t, contentAppJSON, res.Header().Get("Content-Type"))
+				var got []model.Order
+				err := json.Unmarshal(res.Body.Bytes(), &got)
+				require.NoError(t, err)
+				require.Len(t, got, len(tt.wantOrders))
+				for i := range tt.wantOrders {
+					require.Equal(t, tt.wantOrders[i].Number, got[i].Number)
+					require.Equal(t, tt.wantOrders[i].Status, got[i].Status)
+					require.True(t, tt.wantOrders[i].UploadedAt.Equal(got[i].UploadedAt))
+					if tt.wantOrders[i].Accrual == nil {
+						require.Nil(t, got[i].Accrual)
+					} else {
+						require.NotNil(t, got[i].Accrual)
+						require.InDelta(t, *tt.wantOrders[i].Accrual, *got[i].Accrual, 0.000001)
+					}
+				}
 			}
 		})
 	}

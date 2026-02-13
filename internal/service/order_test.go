@@ -5,11 +5,13 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/model"
 	"github.com/stretchr/testify/require"
 )
 
 type stubOrderRepository struct {
 	createOrderIfNotExistsFn func(ctx context.Context, userID int64, number string) (created bool, ownerID int64, err error)
+	listOrdersByUserFn       func(ctx context.Context, userID int64) ([]model.Order, error)
 }
 
 func (s stubOrderRepository) CreateOrderIfNotExists(
@@ -18,6 +20,13 @@ func (s stubOrderRepository) CreateOrderIfNotExists(
 	number string,
 ) (bool, int64, error) {
 	return s.createOrderIfNotExistsFn(ctx, userID, number)
+}
+
+func (s stubOrderRepository) ListOrdersByUser(ctx context.Context, userID int64) ([]model.Order, error) {
+	if s.listOrdersByUserFn == nil {
+		return nil, errors.New("unexpected ListOrdersByUser call")
+	}
+	return s.listOrdersByUserFn(ctx, userID)
 }
 
 func TestOrderService_SubmitOrder(t *testing.T) {
