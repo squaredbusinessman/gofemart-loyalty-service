@@ -44,6 +44,7 @@ func isRetryablePGErr(err error) bool {
 	return false
 }
 
+// CreateUser метод создания пользователя
 func (s *DBStorage) CreateUser(ctx context.Context, login string, passwordHash string) (int64, error) {
 	q, args, err := psql.
 		Insert("users").
@@ -69,6 +70,7 @@ func (s *DBStorage) CreateUser(ctx context.Context, login string, passwordHash s
 	return id, nil
 }
 
+// GetUserByLogin метод авторизации пользователя
 func (s *DBStorage) GetUserByLogin(ctx context.Context, login string) (model.User, error) {
 	q, args, err := psql.
 		Select("id", "login", "password_hash").
@@ -90,4 +92,42 @@ func (s *DBStorage) GetUserByLogin(ctx context.Context, login string) (model.Use
 		return model.User{}, fmt.Errorf("get user by login: %w", err)
 	}
 	return user, nil
+}
+
+// CreateOrderIfNotExists метод проверки уникальности заказа, возвращает владельца заказа
+func (s *DBStorage) CreateOrderIfNotExists(ctx context.Context, userID int64, number string) (created bool, ownerID int64, err error) {
+	q, args, err := psql.
+		Insert("orders").
+		Columns("number", "user_id", "status").
+		Values(number, userID, "NEW").
+		Suffix("ON CONFLICT (number) DO NOTHING").
+		ToSql()
+	if err != nil {
+		return false, 0, fmt.Errorf("buid insert order query: %w", err)
+	}
+
+	tag, err := s.pool.Exec(ctx, q, args...)
+	if err != nil {
+		return false, 0, fmt.Errorf("insert order: %w", err)
+	}
+
+	if tag.RowsAffected() == 1 {
+		return true, userID, nil
+	}
+
+	q, args, err = psql.
+		Select("user_id").
+		From("orders").
+		Where(squirrel.Eq{"number": number}).
+		Limit(1).
+		ToSql()
+	if err != nil {
+		return false, 0, fmt.Errorf("build select owner query: %w", err)
+	}
+
+	if err = s.pool.QueryRow(ctx, q, args...).Scan(&ownerID); err != nil {
+		return false, 0, fmt.Errorf("select order owner: %w", err)
+	}
+
+	return false, ownerID, nil
 }
