@@ -84,7 +84,7 @@ func buildHandlers(_ *zap.Logger, h *handler.Handler, tp myMiddleware.TokenParse
 	r.Group(func(protectedRoutes chi.Router) {
 		protectedRoutes.Use(myMiddleware.AuthMiddleware(tp))
 		protectedRoutes.Post("/api/user/orders", h.UploadOrder)
-		protectedRoutes.Get("/api/user/arders", h.GetOrders)
+		protectedRoutes.Get("/api/user/orders", h.GetOrders)
 	})
 
 	return myMiddleware.Conveyor(r)

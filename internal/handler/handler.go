@@ -212,6 +212,7 @@ func (h *Handler) GetOrders(writer http.ResponseWriter, request *http.Request) {
 	orders, err := h.orderSvc.GetUserOrders(request.Context(), userID)
 	if err != nil {
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError) // 500
+		return
 	}
 
 	if len(orders) == 0 {

@@ -162,7 +162,7 @@ func (s *DBStorage) ListOrdersByUser(ctx context.Context, userID int64) ([]model
 		if accrual.Valid {
 			f, convErr := accrual.Float64Value()
 			if convErr != nil {
-				return nil, fmt.Errorf("convert accrual: %w", err)
+				return nil, fmt.Errorf("convert accrual: %w", convErr)
 			}
 			o.Accrual = &f.Float64
 		}
