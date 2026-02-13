@@ -15,6 +15,7 @@ import (
 	myMiddleware "github.com/squaredbusinessman/gofemart-loyalty-service/internal/middleware"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/repository"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/server"
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/service"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/migrations"
 	"go.uber.org/zap"
 )
@@ -47,8 +48,10 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	if err != nil {
 		return fmt.Errorf("init token manager: %w", err)
 	}
+	// сервис заказов
+	orderService := service.NewOrderService(store)
 	// хэндлеры
-	h := handler.NewHandler(store, tm)
+	h := handler.NewHandler(store, tm, orderService)
 	// собираем ручки и миддлвары
 	resultHandlers := buildHandlers(log, h, tm)
 
@@ -80,6 +83,7 @@ func buildHandlers(_ *zap.Logger, h *handler.Handler, tp myMiddleware.TokenParse
 	// закрытые маршруты
 	r.Group(func(protectedRoutes chi.Router) {
 		protectedRoutes.Use(myMiddleware.AuthMiddleware(tp))
+		protectedRoutes.Post("/api/user/orders", h.UploadOrder)
 	})
 
 	return myMiddleware.Conveyor(r)
