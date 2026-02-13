@@ -11,8 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/auth"
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/middleware"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/model"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/repository"
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/service"
 )
 
 type stubUserRepo struct {
@@ -34,6 +36,22 @@ type stubTokenGenerator struct {
 
 func (s stubTokenGenerator) GenerateToken(userID int64) (string, error) {
 	return s.generateTokenFn(userID)
+}
+
+type stubOrderService struct {
+	submitOrderFn func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error)
+}
+
+func (s stubOrderService) SubmitOrder(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
+	return s.submitOrderFn(ctx, userID, rawNumber)
+}
+
+type stubTokenParser struct {
+	parseTokenFn func(token string) (int64, error)
+}
+
+func (s stubTokenParser) ParseToken(token string) (int64, error) {
+	return s.parseTokenFn(token)
 }
 
 func TestRegister_StatusCodes(t *testing.T) {
@@ -272,4 +290,193 @@ func TestLogin_SetsAuthCookieOnSuccess(t *testing.T) {
 	require.NotEmpty(t, cookies)
 	require.Equal(t, authCookieName, cookies[0].Name)
 	require.Equal(t, "signed-token-login", cookies[0].Value)
+}
+
+func TestUploadOrder_StatusCodes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		method        string
+		contentType   string
+		body          string
+		withAuth      bool
+		service       stubOrderService
+		wantStatus    int
+		wantSvcCalled bool
+		wantUserID    int64
+		wantBody      string
+	}{
+		{
+			name:        "405 method not allowed",
+			method:      http.MethodGet,
+			contentType: "text/plain",
+			body:        "79927398713",
+			withAuth:    true,
+			service: stubOrderService{
+				submitOrderFn: func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
+					return service.SubmitOrderAccepted, nil
+				},
+			},
+			wantStatus:    http.StatusMethodNotAllowed,
+			wantSvcCalled: false,
+		},
+		{
+			name:        "401 without auth context",
+			method:      http.MethodPost,
+			contentType: "text/plain",
+			body:        "79927398713",
+			withAuth:    false,
+			service: stubOrderService{
+				submitOrderFn: func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
+					return service.SubmitOrderAccepted, nil
+				},
+			},
+			wantStatus:    http.StatusUnauthorized,
+			wantSvcCalled: false,
+		},
+		{
+			name:        "415 unsupported content type",
+			method:      http.MethodPost,
+			contentType: "application/json",
+			body:        "79927398713",
+			withAuth:    true,
+			service: stubOrderService{
+				submitOrderFn: func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
+					return service.SubmitOrderAccepted, nil
+				},
+			},
+			wantStatus:    http.StatusUnsupportedMediaType,
+			wantSvcCalled: false,
+		},
+		{
+			name:        "422 invalid order number",
+			method:      http.MethodPost,
+			contentType: "text/plain",
+			body:        "invalid-order",
+			withAuth:    true,
+			service: stubOrderService{
+				submitOrderFn: func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
+					return 0, service.ErrInvalidOrderNumber
+				},
+			},
+			wantStatus:    http.StatusUnprocessableEntity,
+			wantSvcCalled: true,
+			wantUserID:    42,
+			wantBody:      "invalid-order",
+		},
+		{
+			name:        "409 uploaded by another user",
+			method:      http.MethodPost,
+			contentType: "text/plain",
+			body:        "79927398713",
+			withAuth:    true,
+			service: stubOrderService{
+				submitOrderFn: func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
+					return 0, service.ErrOrderUploadedByAnotherUser
+				},
+			},
+			wantStatus:    http.StatusConflict,
+			wantSvcCalled: true,
+			wantUserID:    42,
+			wantBody:      "79927398713",
+		},
+		{
+			name:        "500 internal service error",
+			method:      http.MethodPost,
+			contentType: "text/plain",
+			body:        "79927398713",
+			withAuth:    true,
+			service: stubOrderService{
+				submitOrderFn: func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
+					return 0, errors.New("service unavailable")
+				},
+			},
+			wantStatus:    http.StatusInternalServerError,
+			wantSvcCalled: true,
+			wantUserID:    42,
+			wantBody:      "79927398713",
+		},
+		{
+			name:        "202 accepted",
+			method:      http.MethodPost,
+			contentType: "text/plain",
+			body:        "79927398713",
+			withAuth:    true,
+			service: stubOrderService{
+				submitOrderFn: func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
+					return service.SubmitOrderAccepted, nil
+				},
+			},
+			wantStatus:    http.StatusAccepted,
+			wantSvcCalled: true,
+			wantUserID:    42,
+			wantBody:      "79927398713",
+		},
+		{
+			name:        "200 already uploaded by same user",
+			method:      http.MethodPost,
+			contentType: "text/plain; charset=utf-8",
+			body:        "79927398713",
+			withAuth:    true,
+			service: stubOrderService{
+				submitOrderFn: func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
+					return service.SubmitOrderAlreadyUploadedByUser, nil
+				},
+			},
+			wantStatus:    http.StatusOK,
+			wantSvcCalled: true,
+			wantUserID:    42,
+			wantBody:      "79927398713",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			svcCalled := false
+			var gotUserID int64
+			var gotBody string
+
+			h := &Handler{
+				orderSvc: stubOrderService{
+					submitOrderFn: func(ctx context.Context, userID int64, rawNumber string) (service.SubmitOrderResult, error) {
+						svcCalled = true
+						gotUserID = userID
+						gotBody = rawNumber
+						return tt.service.SubmitOrder(ctx, userID, rawNumber)
+					},
+				},
+			}
+
+			req := httptest.NewRequest(tt.method, "/api/user/orders", strings.NewReader(tt.body))
+			if tt.contentType != "" {
+				req.Header.Set("Content-Type", tt.contentType)
+			}
+			res := httptest.NewRecorder()
+
+			if tt.withAuth {
+				req.AddCookie(&http.Cookie{Name: authCookieName, Value: "valid-token"})
+				wrapped := middleware.AuthMiddleware(stubTokenParser{
+					parseTokenFn: func(token string) (int64, error) {
+						require.Equal(t, "valid-token", token)
+						return 42, nil
+					},
+				})(http.HandlerFunc(h.UploadOrder))
+
+				wrapped.ServeHTTP(res, req)
+			} else {
+				h.UploadOrder(res, req)
+			}
+
+			require.Equal(t, tt.wantStatus, res.Code)
+			require.Equal(t, tt.wantSvcCalled, svcCalled)
+			if tt.wantSvcCalled {
+				require.Equal(t, tt.wantUserID, gotUserID)
+				require.Equal(t, tt.wantBody, gotBody)
+			}
+		})
+	}
 }
