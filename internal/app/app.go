@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/accrual"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/auth"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/config"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/handler"
@@ -43,6 +44,15 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 
 	// инициализируем хранилище, но пока без ручек
 	store := repository.NewDBStorage(pool)
+	// создаем accrual клиент
+	accrualClient, err := accrual.NewClient(cfg.AccrualSystemAddress, 3*time.Second, 2)
+	if err != nil {
+		return fmt.Errorf("init accrual client: %w", err)
+	}
+	// инициализируем accrual worker
+	accrualWorker := service.NewAccrualWorker(store, accrualClient, log, 2*time.Second, 20)
+	// запуск воркера
+	go accrualWorker.Run(ctx)
 	// менеджер токена
 	tm, err := auth.NewTokenManager(cfg.AuthSecret, cfg.AuthTokenTTL)
 	if err != nil {
@@ -54,7 +64,6 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	h := handler.NewHandler(store, tm, orderService)
 	// собираем ручки и миддлвары
 	resultHandlers := buildHandlers(log, h, tm)
-
 	// запуск http server из одноименного пакета сервиса
 	// таймауты пока что хардкодим
 	srv, err := server.New(server.Config{
