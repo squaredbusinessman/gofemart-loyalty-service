@@ -24,3 +24,9 @@ type Order struct {
 	Accrual    *float64  `json:"accrual,omitempty"`
 	UploadedAt time.Time `json:"uploaded_at"`
 }
+
+type OrderForAccrual struct {
+	Number string `json:"number"`
+	UserID int64  `json:"user_id"`
+	Status string `json:"status"`
+}
