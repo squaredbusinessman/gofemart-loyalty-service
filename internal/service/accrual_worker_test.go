@@ -32,6 +32,12 @@ type processedCall struct {
 	accrual *float64
 }
 
+type statefulAccrualRepo struct {
+	orderStatus map[string]string
+	balanceByID map[int64]float64
+	orderOwner  map[string]int64
+}
+
 func (s *stubAccrualWorkerRepo) ListOrdersForAccrual(ctx context.Context, limit int) ([]model.OrderForAccrual, error) {
 	if s.listOrdersFn == nil {
 		return nil, errors.New("unexpected ListOrdersForAccrual call")
@@ -48,6 +54,43 @@ func (s *stubAccrualWorkerRepo) SetProcessedAndCreditOnce(ctx context.Context, n
 	s.setProcessedCalls = append(s.setProcessedCalls, processedCall{number: number, accrual: accrualValue})
 	if s.setProcessedErr != nil {
 		return false, s.setProcessedErr
+	}
+	return true, nil
+}
+
+func (s *statefulAccrualRepo) ListOrdersForAccrual(ctx context.Context, limit int) ([]model.OrderForAccrual, error) {
+	orders := make([]model.OrderForAccrual, 0, 1)
+	for number, status := range s.orderStatus {
+		if status == "NEW" || status == "PROCESSING" {
+			orders = append(orders, model.OrderForAccrual{
+				Number: number,
+				UserID: s.orderOwner[number],
+				Status: status,
+			})
+		}
+	}
+	return orders, nil
+}
+
+func (s *statefulAccrualRepo) SetOrderStatusIfNotFinal(ctx context.Context, number string, status string) error {
+	current := s.orderStatus[number]
+	if current == "PROCESSED" || current == "INVALID" {
+		return nil
+	}
+	s.orderStatus[number] = status
+	return nil
+}
+
+func (s *statefulAccrualRepo) SetProcessedAndCreditOnce(ctx context.Context, number string, accrualValue *float64) (bool, error) {
+	current := s.orderStatus[number]
+	if current != "NEW" && current != "PROCESSING" {
+		return false, nil
+	}
+
+	s.orderStatus[number] = "PROCESSED"
+	if accrualValue != nil && *accrualValue > 0 {
+		userID := s.orderOwner[number]
+		s.balanceByID[userID] += *accrualValue
 	}
 	return true, nil
 }
@@ -212,3 +255,37 @@ func TestAccrualWorker_PollOnce_ClientErrorContinuesBatch(t *testing.T) {
 	require.Equal(t, "PROCESSING", repo.setStatusCalls[0].status)
 }
 
+func TestAccrualWorker_RepeatedPollingDoesNotIncreaseBalanceTwice(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orderNumber = "2377225624"
+		userID      = int64(1)
+	)
+	accrualValue := 250.0
+
+	repo := &statefulAccrualRepo{
+		orderStatus: map[string]string{orderNumber: "NEW"},
+		balanceByID: map[int64]float64{userID: 0},
+		orderOwner:  map[string]int64{orderNumber: userID},
+	}
+	client := &stubAccrualClient{
+		getOrderFn: func(ctx context.Context, number string) (accrual.Result, error) {
+			return accrual.Result{
+				Kind:    accrual.ResultProcessed,
+				Accrual: &accrualValue,
+			}, nil
+		},
+	}
+
+	worker := NewAccrualWorker(repo, client, zap.NewNop(), time.Second, 10)
+
+	// первое начисление, проверка смены статуса и корректности начисления
+	worker.pollOnce(context.Background())
+	require.Equal(t, "PROCESSED", repo.orderStatus[orderNumber])
+	require.Equal(t, 250.0, repo.balanceByID[userID])
+
+	// проверка повторного начисления
+	worker.pollOnce(context.Background())
+	require.Equal(t, 250.0, repo.balanceByID[userID])
+}
