@@ -1,3 +1,3 @@
 package main
 
-//go:generate swag init -g ./main.go -o ../../docs --parseInternal
+//go:generate swag init -d ../../ -g cmd/gophermart/main.go -o ../../docs --parseInternal
