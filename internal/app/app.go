@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/squaredbusinessman/gofemart-loyalty-service/docs"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/accrual"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/auth"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/config"
@@ -18,6 +19,7 @@ import (
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/server"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/service"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/migrations"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 	"go.uber.org/zap"
 )
 
@@ -84,6 +86,11 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 func buildHandlers(_ *zap.Logger, h *handler.Handler, tp myMiddleware.TokenParser) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chiMiddleware.StripSlashes)
+
+	// подключаем доку сваггера
+	r.Get("/swagger/*", httpSwagger.Handler(
+		httpSwagger.URL("/swagger/doc.json"),
+	))
 
 	// открытые маршруты
 	r.Post("/api/user/register", h.Register)

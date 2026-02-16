@@ -56,6 +56,17 @@ func NewHandler(userRepo repository.UserRepository, tokenGen TokenGenerator, ord
 	}
 }
 
+// Register godoc
+// @Summary Регистрация пользователя
+// @Tags user
+// @Accept json
+// @Produce plain
+// @Param request body model.RegisterUser true "login/password"
+// @Success 200 {string} string "ok"
+// @Failure 400 {string} string "bad request"
+// @Failure 409 {string} string "conflict"
+// @Failure 500 {string} string "internal error"
+// @Router /api/user/register [post]
 func (h *Handler) Register(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost {
 		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -100,6 +111,17 @@ func (h *Handler) Register(writer http.ResponseWriter, request *http.Request) {
 	writer.WriteHeader(http.StatusOK)
 }
 
+// Login godoc
+// @Summary Аутентификация пользователя
+// @Tags user
+// @Accept json
+// @Produce plain
+// @Param request body model.LoginRequest true "login/password"
+// @Success 200 {string} string "ok"
+// @Failure 400 {string} string "bad request"
+// @Failure 401 {string} string "unauthorized"
+// @Failure 500 {string} string "internal error"
+// @Router /api/user/login [post]
 func (h *Handler) Login(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost {
 		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -148,6 +170,21 @@ func (h *Handler) Login(writer http.ResponseWriter, request *http.Request) {
 	writer.WriteHeader(http.StatusOK)
 }
 
+// UploadOrder godoc
+// @Summary Загрузка номера заказа
+// @Tags orders
+// @Accept plain
+// @Produce plain
+// @Security ApiKeyAuth
+// @Param order body string true "Номер заказа (text/plain)"
+// @Success 202 {string} string "accepted"
+// @Success 200 {string} string "already uploaded by same user"
+// @Failure 400 {string} string "bad request"
+// @Failure 401 {string} string "unauthorized"
+// @Failure 409 {string} string "conflict"
+// @Failure 422 {string} string "unprocessable entity"
+// @Failure 500 {string} string "internal error"
+// @Router /api/user/orders [post]
 func (h *Handler) UploadOrder(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost {
 		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -199,6 +236,16 @@ func (h *Handler) UploadOrder(writer http.ResponseWriter, request *http.Request)
 	}
 }
 
+// GetOrders godoc
+// @Summary Список заказов пользователя
+// @Tags orders
+// @Produce json
+// @Security ApiKeyAuth
+// @Success 200 {array} model.Order
+// @Failure 204 {string} string "no content"
+// @Failure 401 {string} string "unauthorized"
+// @Failure 500 {string} string "internal error"
+// @Router /api/user/orders [get]
 func (h *Handler) GetOrders(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodGet {
 		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
