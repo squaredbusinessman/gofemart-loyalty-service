@@ -16,5 +16,5 @@ type UserRepository interface {
 type AccrualOrderRepository interface {
 	ListOrdersForAccrual(ctx context.Context, limit int) ([]model.OrderForAccrual, error)
 	SetOrderStatusIfNotFinal(ctx context.Context, number string, status string) error
-	SetProcessedCreditOnce(ctx context.Context, number string, accrual *float64) (bool, error)
+	SetProcessedAndCreditOnce(ctx context.Context, number string, accrual *float64) (bool, error)
 }
