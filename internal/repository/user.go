@@ -12,3 +12,9 @@ type UserRepository interface {
 	CreateOrderIfNotExists(ctx context.Context, userID int64, number string) (created bool, ownerID int64, err error)
 	ListOrdersByUser(ctx context.Context, userID int64) ([]model.Order, error)
 }
+
+type AccrualOrderRepository interface {
+	ListOrdersForAccrual(ctx context.Context, limit int) ([]model.OrderForAccrual, error)
+	SetOrderStatusIfNotFinal(ctx context.Context, number string, status string) error
+	SetProcessedCreditOnce(ctx context.Context, number string, accrual *float64) (bool, error)
+}

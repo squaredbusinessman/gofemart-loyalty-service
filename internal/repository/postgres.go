@@ -176,3 +176,118 @@ func (s *DBStorage) ListOrdersByUser(ctx context.Context, userID int64) ([]model
 
 	return orders, nil
 }
+
+func (s *DBStorage) ListOrdersForAccrual(ctx context.Context, limit int) ([]model.OrderForAccrual, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	q, args, err := psql.
+		Select("number", "user_id", "status").
+		From("orders").
+		Where(squirrel.Eq{"status": []string{"NEW", "PROCESSING"}}).
+		OrderBy("uploaded_at ASC").
+		Limit(uint64(limit)).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build list orders for accrual query: %w", err)
+	}
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list orders for accrual: %w", err)
+	}
+	defer rows.Close()
+
+	orders := make([]model.OrderForAccrual, 0, limit)
+	for rows.Next() {
+		var ord model.OrderForAccrual
+		if err = rows.Scan(&ord.Number, &ord.UserID, &ord.Status); err != nil {
+			return nil, fmt.Errorf("scan order for accrual: %w", err)
+		}
+		orders = append(orders, ord)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate orders for accrual: %w", err)
+	}
+
+	return orders, nil
+}
+
+func (s *DBStorage) SetOrderStatusIfNotFinal(ctx context.Context, number string, status string) error {
+	switch status {
+	case "NEW", "PROCESSING", "INVALID":
+	default:
+		return fmt.Errorf("unsupported status: %s", status)
+	}
+
+	q, args, err := psql.
+		Update("orders").
+		Set("status", status).
+		Where(squirrel.Eq{"number": number}).
+		Where(squirrel.Eq{"status": []string{"NEW", "PROCESSING"}}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build update order status query: %w", err)
+	}
+
+	_, err = s.pool.Exec(ctx, q, args...)
+	if err != nil {
+		return fmt.Errorf("update order status: %w", err)
+	}
+
+	return nil
+}
+
+func (s *DBStorage) SetProcessedAndCreditOnce(ctx context.Context, number string, accrual *float64) (bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	var userID int64
+	q, args, err := psql.
+		Update("orders").
+		Set("status", "PROCESSED").
+		Set("accrual", accrual).
+		Where(squirrel.Eq{"number": number}).
+		Where(squirrel.Eq{"status": []string{"NEW", "PROCESSING"}}).
+		Suffix("RETURNING user_id").
+		ToSql()
+	if err != nil {
+		return false, fmt.Errorf("build update processed order query: %w", err)
+	}
+
+	err = tx.QueryRow(ctx, q, args...).Scan(&userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("mark order processed: %w", err)
+	}
+
+	if accrual != nil && *accrual > 0 {
+		q, args, err = psql.
+			Update("users").
+			Set("current_balance", squirrel.Expr("current_balance + ?", *accrual)).
+			Where(squirrel.Eq{"id": userID}).
+			ToSql()
+		if err != nil {
+			return false, fmt.Errorf("build credit balance query: %w", err)
+		}
+
+		if _, err = tx.Exec(ctx, q, args...); err != nil {
+			return false, fmt.Errorf("credit user balance: %w", err)
+		}
+	}
+
+	if err = tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit tx: %w", err)
+	}
+
+	return true, nil
+}
