@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/model"
-	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/service"
 )
 
 type DBStorage struct {
@@ -408,7 +407,7 @@ func (s *DBStorage) Withdraw(ctx context.Context, userID int64, order string, su
 
 	// проверка доступных средств
 	if current < sum {
-		return fmt.Errorf("withdraw: %w", service.ErrInsufficientFunds)
+		return fmt.Errorf("withdraw: %w", ErrInsufficientFunds)
 	}
 
 	// списание с баланса и увеличение withdrawal_total

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/model"
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/repository"
 )
 
 var (
@@ -35,7 +36,7 @@ func (bs balanceService) GetBalance(ctx context.Context, userID int64) (model.Ba
 }
 
 func (bs balanceService) Withdraw(ctx context.Context, userID int64, order string, sum float64) error {
-	order := strings.TrimSpace(order)
+	order = strings.TrimSpace(order)
 	if !isDigits(order) {
 		return ErrInvalidWithdrawOrder
 	}
@@ -48,7 +49,14 @@ func (bs balanceService) Withdraw(ctx context.Context, userID int64, order strin
 		return ErrInvalidWithdrawSum
 	}
 
-	return bs.repo.Withdraw(ctx, userID, order, sum)
+	if err := bs.repo.Withdraw(ctx, userID, order, sum); err != nil {
+		if errors.Is(err, repository.ErrInsufficientFunds) {
+			return ErrInsufficientFunds
+		}
+		return err
+	}
+
+	return nil
 }
 
 func (bs balanceService) GetWithdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error) {
