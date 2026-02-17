@@ -328,3 +328,48 @@ func (s *DBStorage) GetBalance(ctx context.Context, userID int64) (model.Balance
 		Withdrawn: withdrawnVal.Float64,
 	}, nil
 }
+
+func (s *DBStorage) GetWithdrawals(ctx context.Context, userID int64) ([]model.Withdrawal, error) {
+	q, args, err := psql.
+		Select("order_number", "sum", "processed_at").
+		From("withdrawals").
+		Where(squirrel.Eq{"user_id": userID}).
+		OrderBy("processed_at DESC").
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("build list for user withdrawals query: %w", err)
+	}
+
+	rows, err := s.pool.Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list user withdrawals: %w", err)
+	}
+	defer rows.Close()
+
+	userWithdrawals := make([]model.Withdrawal, 0)
+	for rows.Next() {
+		var userWithdrawal model.Withdrawal
+		var sumNum pgtype.Numeric
+		if err = rows.Scan(&userWithdrawal.Order, &sumNum, &userWithdrawal.ProcessedAt); err != nil {
+			return nil, fmt.Errorf("scan user withdrawals: %w", err)
+		}
+
+		sumVal, convErr := sumNum.Float64Value()
+		if convErr != nil {
+			return nil, fmt.Errorf("convert withdrawal sum: %w", convErr)
+		}
+		userWithdrawal.Sum = sumVal.Float64
+
+		userWithdrawals = append(userWithdrawals, userWithdrawal)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate withdrawals for user: %w", err)
+	}
+
+	return userWithdrawals, nil
+}
+
+func (s *DBStorage) Withdraw(ctx context.Context, userID int64, order string, sum float64) error {
+
+}
