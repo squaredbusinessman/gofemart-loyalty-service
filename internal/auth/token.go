@@ -22,6 +22,10 @@ type TokenManager struct {
 	now    func() time.Time
 }
 
+type TokenGenerator interface {
+	GenerateToken(userID int64) (string, error)
+}
+
 func NewTokenManager(secret string, ttl time.Duration) (*TokenManager, error) {
 	if len(secret) < 32 {
 		return nil, fmt.Errorf("secret too short: need >= 32 bytes")

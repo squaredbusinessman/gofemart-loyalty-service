@@ -15,10 +15,6 @@ import (
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/service"
 )
 
-type TokenGenerator interface {
-	GenerateToken(userID int64) (string, error)
-}
-
 const (
 	authCookieName       = "auth_token"
 	contentTypeTextPlain = "text/plain"
@@ -37,12 +33,13 @@ func setAuthCookie(writer http.ResponseWriter, request *http.Request, token stri
 }
 
 type Handler struct {
-	ur       repository.UserRepository
-	tg       TokenGenerator
-	orderSvc service.OrderService
+	ur         repository.UserRepository
+	tg         auth.TokenGenerator
+	orderSvc   service.OrderService
+	balanceSvc service.BalanceService
 }
 
-func NewHandler(userRepo repository.UserRepository, tokenGen TokenGenerator, orderService service.OrderService) *Handler {
+func NewHandler(userRepo repository.UserRepository, tokenGen auth.TokenGenerator, orderService service.OrderService) *Handler {
 	if userRepo == nil {
 		panic("nil user repository")
 	}
@@ -271,6 +268,101 @@ func (h *Handler) GetOrders(writer http.ResponseWriter, request *http.Request) {
 
 	writer.Header().Set("Content-Type", contentAppJSON)
 	if err = json.NewEncoder(writer).Encode(orders); err != nil {
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handler) GetBalance(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, ok := middleware.UserIDFromContext(request.Context())
+	if !ok {
+		http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized) // 401
+		return
+	}
+
+	balance, err := h.balanceSvc.GetBalance(request.Context(), userID)
+	if err != nil {
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	writer.Header().Set("Content-Type", contentAppJSON)
+	if err = json.NewEncoder(writer).Encode(balance); err != nil {
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (h *Handler) Withdraw(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, ok := middleware.UserIDFromContext(request.Context())
+	if !ok {
+		http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+
+	var req model.WithdrawRequest
+	if err := json.NewDecoder(request.Body).Decode(&req); err != nil {
+		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+
+	req.Order = strings.TrimSpace(req.Order)
+	if req.Order == "" || req.Sum <= 0 {
+		http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+
+	err := h.balanceSvc.Withdraw(request.Context(), userID, req.Order, req.Sum)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidOrderNumber):
+			http.Error(writer, http.StatusText(http.StatusUnprocessableEntity), http.StatusUnprocessableEntity)
+		case errors.Is(err, service.ErrInsufficientFunds):
+			http.Error(writer, http.StatusText(http.StatusPaymentRequired), http.StatusPaymentRequired)
+		default:
+			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		}
+		return
+	}
+
+	writer.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) GetWithdrawals(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID, ok := middleware.UserIDFromContext(request.Context())
+	if !ok {
+		http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized) // 401
+		return
+	}
+
+	withdrawals, err := h.balanceSvc.GetWithdrawals(request.Context(), userID)
+	if err != nil {
+		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError) // 500
+		return
+	}
+
+	if len(withdrawals) == 0 {
+		writer.WriteHeader(http.StatusNoContent) // 204
+		return
+	}
+
+	writer.Header().Set("Content-Type", contentAppJSON)
+	if err = json.NewEncoder(writer).Encode(withdrawals); err != nil {
 		http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
