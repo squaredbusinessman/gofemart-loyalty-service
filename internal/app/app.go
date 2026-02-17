@@ -28,36 +28,57 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	startCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	log.Info("app starting",
+		zap.String("run_address", cfg.RunAddress),
+		zap.String("accrual_system_address", cfg.AccrualSystemAddress),
+		zap.String("log_level", cfg.LogLevel),
+	)
+
+	log.Info("connecting to database")
 	pool, err := pgxpool.New(startCtx, cfg.DatabaseURI)
 	if err != nil {
+		log.Error("init pgxpool failed", zap.Error(err))
 		return fmt.Errorf("init pgxpool: %w", err)
 	}
 	defer pool.Close()
 
 	// пингуем БД чтобы явно понять что соединение установлено
 	if err = pool.Ping(startCtx); err != nil {
+		log.Error("db ping failed", zap.Error(err))
 		return fmt.Errorf("db ping: %w", err)
 	}
+	log.Info("database connected")
 
 	// проверяем запуск схемы миграций
 	if err = migrations.Up(pool, "migrations"); err != nil {
+		log.Error("migrations up failed", zap.Error(err))
 		return fmt.Errorf("migrations up: %w", err)
 	}
+	log.Info("migrations applied")
 
 	// инициализируем хранилище, но пока без ручек
 	store := repository.NewDBStorage(pool)
 	// создаем accrual клиент
 	accrualClient, err := accrual.NewClient(cfg.AccrualSystemAddress, 3*time.Second, 2)
 	if err != nil {
+		log.Error("accrual client start failed", zap.Error(err))
 		return fmt.Errorf("init accrual client: %w", err)
 	}
 	// инициализируем accrual worker
 	accrualWorker := service.NewAccrualWorker(store, accrualClient, log, 2*time.Second, 20)
 	// запуск воркера
-	go accrualWorker.Run(ctx)
+	go func() {
+		log.Info("accrual worker started",
+			zap.Duration("poll_interval", 2*time.Second),
+			zap.Int("batch_size", 20),
+		)
+		accrualWorker.Run(ctx)
+		log.Info("accrual worker stopped")
+	}()
 	// менеджер токена
 	tm, err := auth.NewTokenManager(cfg.AuthSecret, cfg.AuthTokenTTL)
 	if err != nil {
+		log.Error("token manager start failed", zap.Error(err))
 		return fmt.Errorf("init token manager: %w", err)
 	}
 	// сервис заказов
@@ -79,6 +100,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		ShutdownTimeout:   10 * time.Second,
 	}, resultHandlers, log)
 	if err != nil {
+		log.Error("init http server failed", zap.Error(err))
 		return fmt.Errorf("init http server: %w", err)
 	}
 
