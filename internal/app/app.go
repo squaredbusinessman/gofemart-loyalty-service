@@ -108,5 +108,5 @@ func buildHandlers(_ *zap.Logger, h *handler.Handler, tp myMiddleware.TokenParse
 		protectedRoutes.Get("/api/user/withdrawals", h.GetWithdrawals)
 	})
 
-	return myMiddleware.Conveyor(r)
+	return myMiddleware.Conveyor(r, myMiddleware.Gzip, myMiddleware.RequestLogger)
 }
