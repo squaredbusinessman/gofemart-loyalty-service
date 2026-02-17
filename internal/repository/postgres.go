@@ -291,3 +291,40 @@ func (s *DBStorage) SetProcessedAndCreditOnce(ctx context.Context, number string
 
 	return true, nil
 }
+
+func (s *DBStorage) GetBalance(ctx context.Context, userID int64) (model.BalanceResponse, error) {
+	q, args, err := psql.
+		Select("current_balance", "withdrawn_total").
+		From("users").
+		Where(squirrel.Eq{"id": userID}).
+		Limit(1).
+		ToSql()
+	if err != nil {
+		return model.BalanceResponse{}, fmt.Errorf("build balance user query: %w", err)
+	}
+
+	var currentBalanceNum pgtype.Numeric
+	var withdrawnNum pgtype.Numeric
+
+	err = s.pool.QueryRow(ctx, q, args...).Scan(&currentBalanceNum, &withdrawnNum)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return model.BalanceResponse{}, fmt.Errorf("get user balance: %w", ErrUserNotFound)
+		}
+		return model.BalanceResponse{}, fmt.Errorf("get user balance: %w", err)
+	}
+
+	currentVal, err := currentBalanceNum.Float64Value()
+	if err != nil {
+		return model.BalanceResponse{}, fmt.Errorf("convert current balance: %w", err)
+	}
+	withdrawnVal, err := withdrawnNum.Float64Value()
+	if err != nil {
+		return model.BalanceResponse{}, fmt.Errorf("convert withdrawn total: %w", err)
+	}
+
+	return model.BalanceResponse{
+		Current:   currentVal.Float64,
+		Withdrawn: withdrawnVal.Float64,
+	}, nil
+}
