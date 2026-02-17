@@ -66,6 +66,62 @@ go run ./cmd/gophermart
 go generate ./cmd/gophermart
 ```
 
+## Диаграмма компонентов и потоков
+
+SVG-версии:
+
+- [Компоненты и потоки](<docs/Gophermart Order Processing-компоненты и потоки.svg>)
+- [Последовательность обработки заказа](<docs/Gophermart Order Processing-последовательность обработки заказа.svg>)
+
+```mermaid
+flowchart LR
+    U["Пользователь / HTTP клиент"]
+    API["gophermart: HTTP API"]
+    W["gophermart: Accrual Worker (poller)"]
+    DB["PostgreSQL"]
+    AC["accrual API (внешний сервис)"]
+
+    U -->|"POST/GET /api/user/*"| API
+    API -->|"чтение/запись пользователей, заказов, баланса"| DB
+
+    W -->|"выборка NEW/PROCESSING"| DB
+    W -->|"GET /api/orders/{number}"| AC
+    AC -->|"REGISTERED/PROCESSING/INVALID/PROCESSED/204/429"| W
+    W -->|"обновление статусов и транзакционное начисление"| DB
+```
+
+Последовательность обработки заказа:
+
+```mermaid
+sequenceDiagram
+    actor U as Пользователь
+    participant G as gophermart API
+    participant D as PostgreSQL
+    participant W as gophermart Worker
+    participant A as accrual API
+
+    U->>G: POST /api/user/orders (номер)
+    G->>D: INSERT order(status=NEW)
+    G-->>U: 202 Accepted (или 200, если уже загружен этим пользователем)
+
+    loop Периодический polling
+        W->>D: SELECT orders WHERE status IN (NEW, PROCESSING)
+        W->>A: GET /api/orders/{number}
+        A-->>W: status / 204 / 429
+        alt PROCESSED
+            W->>D: TX: status=PROCESSED + credit once
+        else INVALID
+            W->>D: status=INVALID
+        else REGISTERED или PROCESSING
+            W->>D: status=PROCESSING
+        else 204 No Content
+            W->>D: оставить NEW
+        else 429 Too Many Requests
+            W->>W: глобальная пауза по Retry-After
+        end
+    end
+```
+
 ## Тесты и coverage
 
 Для воспроизводимого локального прогона используйте `make`:
