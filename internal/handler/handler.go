@@ -240,7 +240,7 @@ func (h *Handler) UploadOrder(writer http.ResponseWriter, request *http.Request)
 // @Produce json
 // @Security ApiKeyAuth
 // @Success 200 {array} model.Order
-// @Failure 204 {string} string "no content"
+// @Success 204 {string} string "no content"
 // @Failure 401 {string} string "unauthorized"
 // @Failure 500 {string} string "internal error"
 // @Router /api/user/orders [get]
@@ -370,7 +370,7 @@ func (h *Handler) Withdraw(writer http.ResponseWriter, request *http.Request) {
 // @Produce json
 // @Security ApiKeyAuth
 // @Success 200 {array} model.Withdrawal
-// @Failure 204 {string} string "no content"
+// @Success 204 {string} string "no content"
 // @Failure 401 {string} string "unauthorized"
 // @Failure 500 {string} string "internal error"
 // @Router /api/user/withdrawals [get]
