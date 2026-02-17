@@ -101,6 +101,9 @@ func buildHandlers(_ *zap.Logger, h *handler.Handler, tp myMiddleware.TokenParse
 		protectedRoutes.Use(myMiddleware.AuthMiddleware(tp))
 		protectedRoutes.Post("/api/user/orders", h.UploadOrder)
 		protectedRoutes.Get("/api/user/orders", h.GetOrders)
+		protectedRoutes.Get("/api/user/balance", h.GetBalance)
+		protectedRoutes.Post("/api/user/balance/withdraw", h.Withdraw)
+		protectedRoutes.Get("/api/user/withdrawals", h.GetWithdrawals)
 	})
 
 	return myMiddleware.Conveyor(r)
