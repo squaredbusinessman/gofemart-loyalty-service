@@ -23,3 +23,19 @@ git fetch template && git checkout template/master .github
 ```
 
 Затем добавьте полученные изменения в свой репозиторий.
+
+# Тесты и coverage
+
+Для воспроизводимого локального прогона используйте `make`:
+
+```bash
+make test
+make coverage
+make coverage-func
+make coverage-html
+```
+
+- `make test` — прогоняет все тесты (`go test ./...`).
+- `make coverage` — собирает покрытие в `coverage.out`.
+- `make coverage-func` — показывает покрытие по функциям.
+- `make coverage-html` — строит HTML-отчет через `go tool cover`.
