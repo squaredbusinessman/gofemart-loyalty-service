@@ -159,7 +159,7 @@ func TestRegister_StatusCodes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := NewHandler(tt.repo, tt.tokenGen, newNoopOrderService())
+			h := NewHandler(tt.repo, tt.tokenGen, newNoopOrderService(), newNoopBalanceService())
 			req := httptest.NewRequest(http.MethodPost, "/api/user/register", strings.NewReader(tt.body))
 			res := httptest.NewRecorder()
 
@@ -254,7 +254,7 @@ func TestLogin_StatusCodes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := NewHandler(tt.repo, tt.tokenGen, newNoopOrderService())
+			h := NewHandler(tt.repo, tt.tokenGen, newNoopOrderService(), newNoopBalanceService())
 			req := httptest.NewRequest(http.MethodPost, "/api/user/login", strings.NewReader(tt.body))
 			res := httptest.NewRecorder()
 
@@ -284,6 +284,7 @@ func TestRegister_SetsAuthCookieOnSuccess(t *testing.T) {
 			},
 		},
 		newNoopOrderService(),
+		newNoopBalanceService(),
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/user/register", strings.NewReader(`{"login":"user","password":"pass"}`))
@@ -320,6 +321,7 @@ func TestLogin_SetsAuthCookieOnSuccess(t *testing.T) {
 			},
 		},
 		newNoopOrderService(),
+		newNoopBalanceService(),
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/user/login", strings.NewReader(`{"login":"user","password":"correct-password"}`))
