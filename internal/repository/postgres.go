@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/model"
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/service"
 )
 
 type DBStorage struct {
@@ -371,5 +372,78 @@ func (s *DBStorage) GetWithdrawals(ctx context.Context, userID int64) ([]model.W
 }
 
 func (s *DBStorage) Withdraw(ctx context.Context, userID int64, order string, sum float64) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
 
+	// блокировка строки пользователя и получение баланса
+	q, args, err := psql.
+		Select("current_balance").
+		From("users").
+		Where(squirrel.Eq{"id": userID}).
+		Suffix("FOR UPDATE").
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build select balance for update query: %w", err)
+	}
+
+	var currentNum pgtype.Numeric
+	err = tx.QueryRow(ctx, q, args...).Scan(&currentNum)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("withdraw failed: %w", ErrUserNotFound)
+		}
+		return fmt.Errorf("select current balance for update: %w", err)
+	}
+
+	currentVal, err := currentNum.Float64Value()
+	if err != nil {
+		return fmt.Errorf("convert current balance: %w", err)
+	}
+	current := currentVal.Float64
+
+	// проверка доступных средств
+	if current < sum {
+		return fmt.Errorf("withdraw: %w", service.ErrInsufficientFunds)
+	}
+
+	// списание с баланса и увеличение withdrawal_total
+	q, args, err = psql.
+		Update("users").
+		Set("current_balance", squirrel.Expr("current_balance - ?", sum)).
+		Set("withdrawn_total", squirrel.Expr("withdrawn_total + ?", sum)).
+		Where(squirrel.Eq{"id": userID}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build update user balance query: %w", err)
+	}
+
+	if _, err = tx.Exec(ctx, q, args...); err != nil {
+		return fmt.Errorf("update user balance on withdraw: %w", err)
+	}
+
+	// фиксируем списание
+	q, args, err = psql.
+		Insert("withdrawals").
+		Columns("user_id", "order_number", "sum").
+		Values(userID, order, sum).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("build insert withdrawal query: %w", err)
+	}
+
+	if _, err = tx.Exec(ctx, q, args...); err != nil {
+		return fmt.Errorf("insert withdrawal: %w", err)
+	}
+
+	// завершаем транзакцию
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit withdraw tx: %w", err)
+	}
+
+	return nil
 }
