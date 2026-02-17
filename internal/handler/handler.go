@@ -274,6 +274,15 @@ func (h *Handler) GetOrders(writer http.ResponseWriter, request *http.Request) {
 	}
 }
 
+// GetBalance godoc
+// @Summary Баланс пользователя
+// @Tags balance
+// @Produce json
+// @Security ApiKeyAuth
+// @Success 200 {object} model.BalanceResponse
+// @Failure 401 {string} string "unauthorized"
+// @Failure 500 {string} string "internal error"
+// @Router /api/user/balance [get]
 func (h *Handler) GetBalance(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodGet {
 		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -299,6 +308,20 @@ func (h *Handler) GetBalance(writer http.ResponseWriter, request *http.Request) 
 	}
 }
 
+// Withdraw godoc
+// @Summary Списание баллов
+// @Tags balance
+// @Accept json
+// @Produce plain
+// @Security ApiKeyAuth
+// @Param request body model.WithdrawRequest true "order/sum"
+// @Success 200 {string} string "ok"
+// @Failure 400 {string} string "bad request"
+// @Failure 401 {string} string "unauthorized"
+// @Failure 402 {string} string "payment required"
+// @Failure 422 {string} string "unprocessable entity"
+// @Failure 500 {string} string "internal error"
+// @Router /api/user/balance/withdraw [post]
 func (h *Handler) Withdraw(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost {
 		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -339,6 +362,16 @@ func (h *Handler) Withdraw(writer http.ResponseWriter, request *http.Request) {
 	writer.WriteHeader(http.StatusOK)
 }
 
+// GetWithdrawals godoc
+// @Summary История списаний пользователя
+// @Tags balance
+// @Produce json
+// @Security ApiKeyAuth
+// @Success 200 {array} model.Withdrawal
+// @Failure 204 {string} string "no content"
+// @Failure 401 {string} string "unauthorized"
+// @Failure 500 {string} string "internal error"
+// @Router /api/user/withdrawals [get]
 func (h *Handler) GetWithdrawals(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodGet {
 		http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
