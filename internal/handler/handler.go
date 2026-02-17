@@ -39,7 +39,7 @@ type Handler struct {
 	balanceSvc service.BalanceService
 }
 
-func NewHandler(userRepo repository.UserRepository, tokenGen auth.TokenGenerator, orderService service.OrderService) *Handler {
+func NewHandler(userRepo repository.UserRepository, tokenGen auth.TokenGenerator, orderService service.OrderService, balanceService service.BalanceService) *Handler {
 	if userRepo == nil {
 		panic("nil user repository")
 	}
@@ -47,9 +47,10 @@ func NewHandler(userRepo repository.UserRepository, tokenGen auth.TokenGenerator
 		panic("nil token generator")
 	}
 	return &Handler{
-		ur:       userRepo,
-		tg:       tokenGen,
-		orderSvc: orderService,
+		ur:         userRepo,
+		tg:         tokenGen,
+		orderSvc:   orderService,
+		balanceSvc: balanceService,
 	}
 }
 
