@@ -353,6 +353,8 @@ func (h *Handler) Withdraw(writer http.ResponseWriter, request *http.Request) {
 			http.Error(writer, http.StatusText(http.StatusUnprocessableEntity), http.StatusUnprocessableEntity)
 		case errors.Is(err, service.ErrInsufficientFunds):
 			http.Error(writer, http.StatusText(http.StatusPaymentRequired), http.StatusPaymentRequired)
+		case errors.Is(err, service.ErrInvalidWithdrawSum):
+			http.Error(writer, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		default:
 			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		}

@@ -63,7 +63,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	// сервис заказов
 	orderService := service.NewOrderService(store)
 	// сервис баланса
-	balanceService := service.BalanceService(store)
+	balanceService := service.NewBalanceService(store)
 	// хэндлеры
 	h := handler.NewHandler(store, tm, orderService, balanceService)
 	// собираем ручки и миддлвары
