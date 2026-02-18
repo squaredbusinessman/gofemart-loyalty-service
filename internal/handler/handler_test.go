@@ -293,7 +293,9 @@ func TestRegister_SetsAuthCookieOnSuccess(t *testing.T) {
 	h.Register(res, req)
 
 	require.Equal(t, http.StatusOK, res.Code)
-	cookies := res.Result().Cookies()
+	result := res.Result()
+	defer result.Body.Close()
+	cookies := result.Cookies()
 	require.NotEmpty(t, cookies)
 	require.Equal(t, authCookieName, cookies[0].Name)
 	require.Equal(t, "signed-token", cookies[0].Value)
@@ -330,7 +332,9 @@ func TestLogin_SetsAuthCookieOnSuccess(t *testing.T) {
 	h.Login(res, req)
 
 	require.Equal(t, http.StatusOK, res.Code)
-	cookies := res.Result().Cookies()
+	result := res.Result()
+	defer result.Body.Close()
+	cookies := result.Cookies()
 	require.NotEmpty(t, cookies)
 	require.Equal(t, authCookieName, cookies[0].Name)
 	require.Equal(t, "signed-token-login", cookies[0].Value)
