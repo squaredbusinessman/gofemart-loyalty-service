@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/option"
 )
 
 type HTTPClient struct {
@@ -20,7 +22,23 @@ type HTTPClient struct {
 	maxRetries int
 }
 
+// NewClient старая апиха для совместимости
 func NewClient(rawBaseURL string, timeout time.Duration, maxRetries int) (*HTTPClient, error) {
+	return NewClientWithOptions(
+		rawBaseURL,
+		WithTomeout(timeout),
+		WithMaxRetries(maxRetries),
+	)
+}
+
+func NewClientWithOptions(rawBaseURL string, opts ...option.Option[clientConfig]) (*HTTPClient, error) {
+	cfg := defaultClientConfig()
+	option.Apply(&cfg, opts...)
+
+	return newHTTTPClient(rawBaseURL, cfg)
+}
+
+func newHTTTPClient(rawBaseURL string, cfg clientConfig) (*HTTPClient, error) {
 	base := strings.TrimRight(strings.TrimSpace(rawBaseURL), "/")
 	if base == "" {
 		return nil, fmt.Errorf("accrual base url is empty")
@@ -33,19 +51,20 @@ func NewClient(rawBaseURL string, timeout time.Duration, maxRetries int) (*HTTPC
 	if u.Scheme == "" || u.Host == "" {
 		return nil, fmt.Errorf("invalid accrual base url: %q", rawBaseURL)
 	}
-	if timeout <= 0 {
-		timeout = 3 * time.Second
+
+	if cfg.timeout <= 0 {
+		cfg.timeout = 3 * time.Second
 	}
-	if maxRetries < 0 {
-		maxRetries = 0
+	if cfg.maxRetries < 0 {
+		cfg.maxRetries = 0
 	}
 
 	return &HTTPClient{
 		baseURL: u,
 		httpClient: &http.Client{
-			Timeout:       timeout,
+			Timeout: cfg.timeout,
 		},
-		maxRetries: maxRetries,
+		maxRetries: cfg.maxRetries,
 	}, nil
 }
 

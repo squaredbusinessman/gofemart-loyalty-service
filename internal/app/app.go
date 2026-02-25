@@ -59,7 +59,11 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	// инициализируем хранилище, но пока без ручек
 	store := repository.NewDBStorage(pool)
 	// создаем accrual клиент
-	accrualClient, err := accrual.NewClient(cfg.AccrualSystemAddress, 3*time.Second, 2)
+	accrualClient, err := accrual.NewClientWithOptions(
+		cfg.AccrualSystemAddress,
+		accrual.WithTomeout(3*time.Second),
+		accrual.WithMaxRetries(2),
+	)
 	if err != nil {
 		log.Error("accrual client start failed", zap.Error(err))
 		return fmt.Errorf("init accrual client: %w", err)
