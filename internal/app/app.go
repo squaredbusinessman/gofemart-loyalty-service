@@ -26,8 +26,21 @@ import (
 )
 
 func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
+	// локальные переменные, взамен магическим числам
+	startTimeout := 5 * time.Second
+
+	accrualHTTPTimeout := 3 * time.Second
+	accrualMaxRetries := 2
+	accrualPollInterval := 2 * time.Second
+	accrualBatchSize := 20
+
+	readHeaderTimeout := 5 * time.Second
+	readTimeout := 15 * time.Second
+	writeTimeout := 15 * time.Second
+	idleTimeout := 60 * time.Second
+	shutdownTimeout := 10 * time.Second
 	// контекст-таймаут для старта БД, чтобы избежать зависаний при запуске сервиса
-	startCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	startCtx, cancel := context.WithTimeout(ctx, startTimeout)
 	defer cancel()
 
 	log.Info("app starting",
@@ -63,15 +76,15 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	// создаем accrual клиент
 	accrualClient, err := accrual.NewClientWithOptions(
 		cfg.AccrualSystemAddress,
-		accrual.WithTimeout(3*time.Second),
-		accrual.WithMaxRetries(2),
+		accrual.WithTimeout(accrualHTTPTimeout),
+		accrual.WithMaxRetries(accrualMaxRetries),
 	)
 	if err != nil {
 		log.Error("accrual client start failed", zap.Error(err))
 		return fmt.Errorf("init accrual client: %w", err)
 	}
 	// инициализируем accrual worker
-	accrualWorker := service.NewAccrualWorker(store, accrualClient, log, 2*time.Second, 20)
+	accrualWorker := service.NewAccrualWorker(store, accrualClient, log, accrualPollInterval, accrualBatchSize)
 	// менеджер токена
 	tm, err := auth.NewTokenManager(cfg.AuthSecret, cfg.AuthTokenTTL)
 	if err != nil {
@@ -90,23 +103,24 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	// таймауты пока что хардкодим
 	srv, err := server.New(server.Config{
 		Addr:              cfg.RunAddress,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		ShutdownTimeout:   10 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+		ShutdownTimeout:   shutdownTimeout,
 	}, resultHandlers, log)
 	if err != nil {
 		log.Error("init http server failed", zap.Error(err))
 		return fmt.Errorf("init http server: %w", err)
 	}
 
+	// runtime-группа: HTTP сервер и фоновые воркеры живут на одном контексте
 	g, gctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
 		log.Info("accrual worker started",
-			zap.Duration("poll_interval", 2*time.Second),
-			zap.Int("batch_size", 20),
+			zap.Duration("poll_interval", accrualPollInterval),
+			zap.Int("batch_size", accrualBatchSize),
 		)
 		// запуск воркера
 		accrualWorker.Run(gctx)
@@ -118,7 +132,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		return srv.Run(gctx)
 	})
 
-	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+	if err = g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 
