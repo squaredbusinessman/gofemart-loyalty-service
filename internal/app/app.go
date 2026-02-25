@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/squaredbusinessman/gofemart-loyalty-service/migrations"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
 )
 
 func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
@@ -61,7 +63,7 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	// создаем accrual клиент
 	accrualClient, err := accrual.NewClientWithOptions(
 		cfg.AccrualSystemAddress,
-		accrual.WithTomeout(3*time.Second),
+		accrual.WithTimeout(3*time.Second),
 		accrual.WithMaxRetries(2),
 	)
 	if err != nil {
@@ -70,15 +72,6 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 	}
 	// инициализируем accrual worker
 	accrualWorker := service.NewAccrualWorker(store, accrualClient, log, 2*time.Second, 20)
-	// запуск воркера
-	go func() {
-		log.Info("accrual worker started",
-			zap.Duration("poll_interval", 2*time.Second),
-			zap.Int("batch_size", 20),
-		)
-		accrualWorker.Run(ctx)
-		log.Info("accrual worker stopped")
-	}()
 	// менеджер токена
 	tm, err := auth.NewTokenManager(cfg.AuthSecret, cfg.AuthTokenTTL)
 	if err != nil {
@@ -108,7 +101,28 @@ func Run(ctx context.Context, cfg config.Config, log *zap.Logger) error {
 		return fmt.Errorf("init http server: %w", err)
 	}
 
-	return srv.Run(ctx)
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		log.Info("accrual worker started",
+			zap.Duration("poll_interval", 2*time.Second),
+			zap.Int("batch_size", 20),
+		)
+		// запуск воркера
+		accrualWorker.Run(gctx)
+		log.Info("accrual worker stopped")
+		return nil
+	})
+
+	g.Go(func() error {
+		return srv.Run(gctx)
+	})
+
+	if err := g.Wait(); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+
+	return nil
 }
 
 func buildHandlers(_ *zap.Logger, h *handler.Handler, tp myMiddleware.TokenParser) http.Handler {

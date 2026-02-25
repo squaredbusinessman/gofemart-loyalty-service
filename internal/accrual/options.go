@@ -18,7 +18,7 @@ func defaultClientConfig() clientConfig {
 	}
 }
 
-func WithTomeout(d time.Duration) option.Option[clientConfig] {
+func WithTimeout(d time.Duration) option.Option[clientConfig] {
 	return func(c *clientConfig) {
 		if d > 0 {
 			c.timeout = d
