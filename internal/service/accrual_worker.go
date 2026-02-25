@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/accrual"
@@ -70,7 +71,7 @@ func (aw *AccrualWorker) pollOnce(ctx context.Context) {
 		return
 	}
 
-	for _, ord := range orders {
+	for ord := range slices.Values(orders) {
 		if ctx.Err() != nil {
 			return
 		}
