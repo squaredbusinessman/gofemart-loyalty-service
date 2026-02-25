@@ -26,7 +26,7 @@ type HTTPClient struct {
 func NewClient(rawBaseURL string, timeout time.Duration, maxRetries int) (*HTTPClient, error) {
 	return NewClientWithOptions(
 		rawBaseURL,
-		WithTomeout(timeout),
+		WithTimeout(timeout),
 		WithMaxRetries(maxRetries),
 	)
 }
