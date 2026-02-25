@@ -12,23 +12,33 @@ import (
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/logger"
 )
 
+const (
+	exitOK      = 0
+	exitRuntime = 1
+	exitConfig  = 2
+)
+
 func main() {
+	os.Exit(run(os.Args[1:]))
+}
+
+func run(args []string) int {
 	// грузим кофиг
 	cfg, err := config.Load(os.Args[1:])
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		return exitConfig
 	}
 
 	// валидируем загруженный конфиг
 	if err = cfg.Validate(); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(2)
+		return exitConfig
 	}
 
 	if err = logger.Initialize(cfg.LogLevel); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "init logger:", err)
-		os.Exit(1)
+		return exitConfig
 	}
 	defer func() { _ = logger.Log.Sync() }()
 
@@ -38,6 +48,8 @@ func main() {
 
 	if err := app.Run(ctx, cfg, logger.Log); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return exitRuntime
 	}
+
+	return exitOK
 }
