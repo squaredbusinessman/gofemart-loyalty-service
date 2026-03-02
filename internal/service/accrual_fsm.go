@@ -81,15 +81,28 @@ func (afsm *accrualFSM) Apply(ctx context.Context, ord model.OrderForAccrual, re
 		return err
 	}
 	state := orderState(ord.Status)
-	byEvent, ok := afsm.table[state]
-	if !ok {
-		return nil // финальные состояния
+
+	if !isKnownState(state) {
+		return fmt.Errorf("unknown order state: %q", ord.Status)
 	}
 
+	if isFinalState(state) {
+		return nil
+	}
+
+	byEvent := afsm.table[state]
 	transition, ok := byEvent[event]
 	if !ok {
 		return nil // недопустимый переход
 	}
 
 	return transition(ctx, ord, res)
+}
+
+func isFinalState(state orderState) bool {
+	return state == stInvalid || state == stProcessed
+}
+
+func isKnownState(state orderState) bool {
+	return state == stNew || state == stProcessing || state == stInvalid || state == stProcessed
 }
