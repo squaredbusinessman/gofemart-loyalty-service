@@ -20,6 +20,7 @@ type AccrualOrderRepository interface {
 type AccrualWorker struct {
 	repo         AccrualOrderRepository
 	client       accrual.Client
+	fsm          *accrualFSM
 	log          *zap.Logger
 	pollInterval time.Duration
 	batchSize    int
@@ -38,6 +39,7 @@ func NewAccrualWorker(repo AccrualOrderRepository, client accrual.Client, log *z
 	return &AccrualWorker{
 		repo:         repo,
 		client:       client,
+		fsm:          newAccrualFSM(repo),
 		log:          log,
 		pollInterval: pollInterval,
 		batchSize:    batchSize,
@@ -87,30 +89,24 @@ func (aw *AccrualWorker) pollOnce(ctx context.Context) {
 			continue
 		}
 
-		switch res.Kind {
-		case accrual.ResultProcessing:
-			if err = aw.repo.SetOrderStatusIfNotFinal(ctx, ord.Number, "PROCESSING"); err != nil {
-				aw.log.Warn("set PROCESSING status was failed", zap.String("order", ord.Number), zap.Error(err))
-			}
-		case accrual.ResultInvalid:
-			if err = aw.repo.SetOrderStatusIfNotFinal(ctx, ord.Number, "INVALID"); err != nil {
-				aw.log.Warn("set INVALID status was failed", zap.String("order", ord.Number), zap.Error(err))
-			}
-		case accrual.ResultNotRegistered:
-			// 204
-			if err = aw.repo.SetOrderStatusIfNotFinal(ctx, ord.Number, "NEW"); err != nil {
-				aw.log.Warn("set NEW status was failed", zap.String("order", ord.Number), zap.Error(err))
-			}
-		case accrual.ResultProcessed:
-			if _, err = aw.repo.SetProcessedAndCreditOnce(ctx, ord.Number, res.Accrual); err != nil {
-				aw.log.Warn("set PROCESSED status and credit user were failed", zap.String("order", ord.Number), zap.Error(err))
-			}
-		case accrual.ResultRateLimited:
+		if res.Kind == accrual.ResultRateLimited {
 			if res.RetryAfter > 0 {
 				aw.blockedUntil = aw.timeNowFunc().Add(res.RetryAfter)
-				aw.log.Warn("accrual was rate limited, worker is blocked", zap.Duration("retry_after", res.RetryAfter), zap.Time("blocked_until", aw.blockedUntil))
+				aw.log.Warn("accrual was rate limited, worker is blocked",
+					zap.Duration("retry_after", res.RetryAfter),
+					zap.Time("blocked_until", aw.blockedUntil),
+				)
 			}
 			return
+		}
+
+		if err = aw.fsm.Apply(ctx, ord, res); err != nil {
+			aw.log.Warn("accrual fsm apply failed",
+				zap.String("order", ord.Number),
+				zap.String("current_status", ord.Status),
+				zap.Any("result_kind", res.Kind),
+				zap.Error(err),
+			)
 		}
 	}
 }
