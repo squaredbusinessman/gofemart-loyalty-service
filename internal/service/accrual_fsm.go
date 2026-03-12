@@ -8,6 +8,14 @@ import (
 	"github.com/squaredbusinessman/gofemart-loyalty-service/internal/model"
 )
 
+// FSM в этом файле отвечает только за бизнес-переходы статусов заказа.
+// Важные границы ответственности:
+//  1. Здесь нет HTTP/Retry/429-логики — это зона worker/client.
+//  2. Здесь нет логирования — вызывающий слой логирует контекст ошибки (номер заказа и т.д.).
+//  3. Переход в PROCESSED делегирует в репозиторий атомарную операцию SetProcessedAndCreditOnce,
+//     чтобы начисление происходило ровно один раз.
+//
+// Это keeps-it-simple FSM: таблица переходов + функции-экшены.
 type orderState string
 type orderEvent string
 
@@ -26,9 +34,12 @@ const (
 type transitionFn func(ctx context.Context, ord model.OrderForAccrual, res accrual.Result) error
 
 type accrualFSM struct {
+	// table[state][event] => transition function
 	table map[orderState]map[orderEvent]transitionFn
 }
 
+// eventFromResult переводит ответ accrual-клиента в внутреннее событие FSM.
+// Если ResultKind не относится к переходам состояния (например rate-limit), возвращаем ошибку.
 func eventFromResult(res accrual.Result) (orderEvent, error) {
 	switch res.Kind {
 	case accrual.ResultProcessing:
@@ -44,6 +55,8 @@ func eventFromResult(res accrual.Result) (orderEvent, error) {
 	}
 }
 
+// Финальные состояния не должны изменяться повторным polling.
+// Это защищает от повторной обработки уже закрытых заказов.
 func isFinalState(state orderState) bool {
 	return state == stInvalid || state == stProcessed
 }
@@ -63,12 +76,19 @@ func isFinalState(state orderState) bool {
 //	invalid         -> INVALID
 //	processed       -> PROCESSED
 //	not_registered  -> NEW
+//
+// Почему not_registered -> NEW:
+// accrual вернул 204, значит заказ еще не зарегистрирован во внешней системе.
+// Локально оставляем заказ в ожидании.
 func newAccrualFSM(repo AccrualOrderRepository) *accrualFSM {
 	setStatus := func(status orderState) transitionFn {
 		return func(ctx context.Context, ord model.OrderForAccrual, _ accrual.Result) error {
 			return repo.SetOrderStatusIfNotFinal(ctx, ord.Number, string(status))
 		}
 	}
+
+	// setProcessed не обновляет статус напрямую, а вызывает атомарный метод репозитория:
+	// смена статуса + начисление баланса в одной транзакции.
 	setProcessed := func(ctx context.Context, ord model.OrderForAccrual, res accrual.Result) error {
 		_, err := repo.SetProcessedAndCreditOnce(ctx, ord.Number, res.Accrual)
 		return err
@@ -92,6 +112,8 @@ func newAccrualFSM(repo AccrualOrderRepository) *accrualFSM {
 	}
 }
 
+// parseOrderState валидирует сырой статус из БД и переводит его в типизированное состояние FSM.
+// Явный парсинг вместо type-cast нужен, чтобы не проглатывать неизвестные значения.
 func parseOrderState(raw string) (orderState, error) {
 	switch raw {
 	case string(stNew):
@@ -107,6 +129,13 @@ func parseOrderState(raw string) (orderState, error) {
 	}
 }
 
+// Apply выполняет один шаг FSM для конкретного заказа:
+// status(from DB) + result(from accrual) -> transition action.
+// Возвращает ошибку только для действительно аномальных ситуаций:
+//   - неизвестный статус в БД;
+//   - неподдерживаемый result kind;
+//   - поломанная таблица переходов;
+//   - ошибка репозитория при выполнении transition action.
 func (afsm *accrualFSM) Apply(ctx context.Context, ord model.OrderForAccrual, res accrual.Result) error {
 	event, err := eventFromResult(res)
 	if err != nil {
