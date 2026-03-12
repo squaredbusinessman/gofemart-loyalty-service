@@ -84,6 +84,39 @@ func TestEventFromResult(t *testing.T) {
 	}
 }
 
+func TestParseOrderState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		raw       string
+		wantState orderState
+		wantErr   bool
+	}{
+		{name: "new", raw: "NEW", wantState: stNew},
+		{name: "processing", raw: "PROCESSING", wantState: stProcessing},
+		{name: "invalid", raw: "INVALID", wantState: stInvalid},
+		{name: "processed", raw: "PROCESSED", wantState: stProcessed},
+		{name: "unknown", raw: "BROKEN", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseOrderState(tt.raw)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.wantState, got)
+		})
+	}
+}
+
 func TestAccrualFSM_Apply_Transitions(t *testing.T) {
 	t.Parallel()
 
@@ -243,6 +276,26 @@ func TestAccrualFSM_Apply_UnknownStateReturnsError(t *testing.T) {
 	err := fsm.Apply(context.Background(), order, accrual.Result{Kind: accrual.ResultProcessing})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "unknown order state")
+	require.Empty(t, repo.setStatusCalls)
+	require.Empty(t, repo.setProcCalls)
+}
+
+func TestAccrualFSM_Apply_StateIsKnownButMissingInTableReturnsError(t *testing.T) {
+	t.Parallel()
+
+	repo := &fsmRepoStub{}
+	fsm := newAccrualFSM(repo)
+	delete(fsm.table, stNew)
+
+	order := model.OrderForAccrual{
+		Number: "order-1",
+		UserID: 1,
+		Status: "NEW",
+	}
+
+	err := fsm.Apply(context.Background(), order, accrual.Result{Kind: accrual.ResultProcessing})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "fsm table has no transitions for state")
 	require.Empty(t, repo.setStatusCalls)
 	require.Empty(t, repo.setProcCalls)
 }
